@@ -1,0 +1,1194 @@
+import { useEffect, useMemo, useState } from 'react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { api } from './api'
+import type {
+  StatuslineComponentMeta,
+  StatuslineConfig,
+  StatuslineMock,
+  StatuslineThemesResp,
+} from './types'
+
+// DEFAULT_MOCK — valores plausíveis pra preview inicial.
+const DEFAULT_MOCK: StatuslineMock = {
+  cwd: '/Users/dev/projects/my-app',
+  branch: 'feat/CC-1234-statusline',
+  model: 'Opus 4.7',
+  context_pct: 42,
+  cost_usd: 0.32,
+  lines_added: 45,
+  lines_removed: 12,
+  rate_5h_pct: 73,
+  rate_7d_pct: 18,
+  vim_mode: '',
+  burn_rate_tpm: 850,
+  cost_p90: 0.5,
+  cost_today: 4.23,
+  cluster_name: 'auth-refactor',
+}
+
+// mockToInput → shape Input do Claude Code (stdin).
+function mockToInput(m: StatuslineMock) {
+  return {
+    cwd: m.cwd,
+    session_id: 'preview-mock',
+    model: { display_name: m.model, id: 'claude-opus-4-7' },
+    workspace: { current_dir: m.cwd, project_dir: m.cwd },
+    context_window: { used_percentage: m.context_pct },
+    cost: {
+      total_cost_usd: m.cost_usd,
+      total_lines_added: m.lines_added,
+      total_lines_removed: m.lines_removed,
+    },
+    rate_limits: {
+      five_hour: { used_percentage: m.rate_5h_pct },
+      seven_day: { used_percentage: m.rate_7d_pct },
+    },
+    worktree: { branch: m.branch },
+    vim: m.vim_mode ? { mode: m.vim_mode } : undefined,
+  }
+}
+
+// mockToHistory → simula HistoryData que o daemon devolveria. Permite
+// preview de burn_rate, cost_session badge vs p90, cluster, cost_today.
+function mockToHistory(m: StatuslineMock) {
+  return {
+    session: {
+      id: 'preview-mock',
+      cost_usd: m.cost_usd,
+      burn_rate_tpm: m.burn_rate_tpm,
+    },
+    daily: { cost_usd: m.cost_today, sessions_count: 8 },
+    monthly: { accumulated: 0, today: 0, projection: 0, day_of_month: 0, days: 0 },
+    project: {
+      name: 'preview',
+      dir: m.cwd,
+      p90_cost: m.cost_p90,
+      p90_tokens: 50000,
+      ticket: '',
+      cluster_name: m.cluster_name,
+      tech_stack: ['Go', 'TypeScript'],
+    },
+  }
+}
+
+// Studio é o editor visual do statusline. Esquerda: theme + style + lista de
+// linhas com components draggable. Direita: preview live (debounce 150ms).
+export function App() {
+  const [cfg, setCfg] = useState<StatuslineConfig | null>(null)
+  const [components, setComponents] = useState<StatuslineComponentMeta[]>([])
+  const [themesResp, setThemesResp] = useState<StatuslineThemesResp | null>(null)
+  const [presets, setPresets] = useState<Record<string, StatuslineConfig>>({})
+  const [presetNames, setPresetNames] = useState<string[]>([])
+  const [previewHTML, setPreviewHTML] = useState('')
+  const [saveStatus, setSaveStatus] = useState('')
+  const [pickerLineIdx, setPickerLineIdx] = useState<number | null>(null)
+  const [mock, setMock] = useState<StatuslineMock>(DEFAULT_MOCK)
+  const [editingComponent, setEditingComponent] = useState<string | null>(null)
+
+  // Inicial load
+  useEffect(() => {
+    Promise.all([
+      api.configGet(),
+      api.components(),
+      api.themes(),
+      api.presets(),
+    ])
+      .then(([c, comps, ths, pres]) => {
+        setCfg(c)
+        setComponents(comps)
+        setThemesResp(ths)
+        setPresets(pres.presets)
+        setPresetNames(pres.names)
+      })
+      .catch((err) => setSaveStatus('erro: ' + String(err)))
+  }, [])
+
+  // Reset pra preset — pede confirmação só se cfg estiver "sujo" (não-vazio)
+  const resetToPreset = (name: string) => {
+    const p = presets[name]
+    if (!p) return
+    if (cfg && cfg.lines.some((l) => l.components.length > 0)) {
+      if (!confirm(`Substituir config atual pelo preset "${name}"?`)) return
+    }
+    setCfg(structuredClone(p))
+    setSaveStatus(`↺ resetado pro preset "${name}" — clique Salvar pra persistir`)
+    setTimeout(() => setSaveStatus(''), 4000)
+  }
+
+  // Live preview com debounce — toda mudança em cfg dispara render.
+  useEffect(() => {
+    if (!cfg) return
+    const t = setTimeout(() => {
+      api
+        .render(cfg, mockToInput(mock), mockToHistory(mock))
+        .then((r) => setPreviewHTML(r.html))
+        .catch((err) => setPreviewHTML('<span class="text-red-400">error: ' + String(err) + '</span>'))
+    }, 150)
+    return () => clearTimeout(t)
+  }, [cfg, mock])
+
+  // Save → POST + status flash
+  const save = async () => {
+    if (!cfg) return
+    setSaveStatus('saving…')
+    try {
+      const r = await api.configSave(cfg)
+      setSaveStatus(`✓ saved → ${r.path}`)
+      setTimeout(() => setSaveStatus(''), 4000)
+    } catch (err) {
+      setSaveStatus('erro: ' + String(err))
+    }
+  }
+
+  if (!cfg || !themesResp) {
+    return <div className="p-6 text-[var(--color-muted)]">carregando studio…</div>
+  }
+
+  return (
+    <div className="flex flex-col h-screen">
+      <header className="border-b border-[var(--color-border)] px-4 py-3 flex items-center gap-3">
+        <h1 className="font-mono font-bold text-[var(--color-accent)] text-lg">
+          claude-statusline · Studio
+        </h1>
+        <span className="text-xs text-[var(--color-muted)]">
+          editor visual pra Claude Code statusLine
+        </span>
+        <a
+          href="https://github.com/felipeness/claude-statusline"
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] underline"
+        >
+          github
+        </a>
+      </header>
+
+      <div className="grid grid-cols-[420px_1fr] gap-4 flex-1 p-4 overflow-hidden">
+      {/* LEFT — config panel */}
+      <div className="overflow-auto space-y-4 pr-2">
+        <HelpSection />
+
+        <Section
+          title="Theme"
+          help="Cores aplicadas em cada component. Cada theme define BG/FG por component + 3 cores de severity (verde/amarelo/vermelho)."
+        >
+          <div className="grid grid-cols-3 gap-2">
+            {themesResp.themes.map((t) => (
+              <ThemeCard
+                key={t.name}
+                theme={t}
+                active={cfg.theme === t.name}
+                onClick={() => setCfg({ ...cfg, theme: t.name })}
+              />
+            ))}
+          </div>
+        </Section>
+
+        <Section
+          title="Style"
+          help="Como os components ficam visualmente: plain (separator simples), powerline (pílulas com transição — precisa Nerd Font pro arrow ), capsule (pílulas independentes com bordas arredondadas)."
+        >
+          <div className="flex gap-2">
+            {themesResp.styles.map((s) => (
+              <button
+                key={s}
+                onClick={() => setCfg({ ...cfg, style: s })}
+                className={`px-3 py-1.5 rounded text-xs border ${
+                  cfg.style === s
+                    ? 'bg-[var(--color-accent)] text-black border-[var(--color-accent)]'
+                    : 'border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)]'
+                }`}
+                title={styleDescription(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        <Section
+          title="Lines"
+          help="Cada linha vira uma linha visual no statusline. Arraste os chips pra reordenar. Click no ⚙ pra editar thresholds (warn/critical) de components que reagem com cor."
+          right={
+            <button
+              onClick={() =>
+                setCfg({
+                  ...cfg,
+                  lines: [...cfg.lines, { components: [], separator: ' │ ' }],
+                })
+              }
+              className="text-xs text-[var(--color-accent)] hover:underline"
+            >
+              + linha
+            </button>
+          }
+        >
+          <div className="space-y-3">
+            {cfg.lines.map((line, idx) => (
+              <LineEditor
+                key={idx}
+                idx={idx}
+                line={line}
+                components={components}
+                onChange={(newLine) => {
+                  const lines = [...cfg.lines]
+                  lines[idx] = newLine
+                  setCfg({ ...cfg, lines })
+                }}
+                onDelete={() => {
+                  const lines = cfg.lines.filter((_, i) => i !== idx)
+                  setCfg({ ...cfg, lines })
+                }}
+                onAddClick={() => setPickerLineIdx(idx)}
+                onEditThreshold={setEditingComponent}
+              />
+            ))}
+          </div>
+        </Section>
+
+        <Section
+          title="Resetar pra preset"
+          help="Presets prontos pra começar. compact = 1 linha enxuta. max = 2 linhas com tudo. powerline = estilo pílulas."
+        >
+          <div className="flex gap-2 flex-wrap">
+            {presetNames.map((name) => (
+              <button
+                key={name}
+                onClick={() => resetToPreset(name)}
+                className="px-3 py-1.5 rounded text-xs border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)] hover:border-[var(--color-fg)]"
+                title={presetDescription(name)}
+              >
+                ↺ {name}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 text-[10px] text-[var(--color-muted)]">
+            Substitui a config no editor — só persiste depois de clicar em Salvar.
+          </div>
+        </Section>
+
+        <div className="flex gap-2 pt-2">
+          <button
+            onClick={save}
+            className="px-4 py-2 rounded bg-[var(--color-accent)] text-black text-sm font-medium hover:opacity-90"
+          >
+            Salvar
+          </button>
+          {saveStatus && (
+            <div className="self-center text-xs text-[var(--color-muted)]">{saveStatus}</div>
+          )}
+        </div>
+      </div>
+
+      {/* RIGHT — preview */}
+      <div className="space-y-3">
+        <Section
+          title="Preview live"
+          help="Renderizado pelo engine Go (single source of truth). Frontend só envia config + mock e exibe HTML. Mesmo render que o Claude Code vê."
+        >
+          <div className="bg-black rounded p-4 font-mono text-sm overflow-x-auto">
+            <AnsiPreview html={previewHTML} />
+          </div>
+          <div className="mt-2 text-xs text-[var(--color-muted)]">
+            Edite os valores em "Mock data" abaixo pra simular cenários (ex: context 90%, cost 3×p90).
+          </div>
+        </Section>
+
+        <SeverityLegend />
+
+        <Section
+          title="Mock data"
+          right={
+            <button
+              onClick={() => setMock(DEFAULT_MOCK)}
+              className="text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)]"
+            >
+              ↺ resetar
+            </button>
+          }
+        >
+          <div className="text-[10px] text-amber-400 mb-2 leading-relaxed">
+            ⚠ Mock fields só aparecem se o component correspondente estiver na linha. Adicione{' '}
+            <code>vim_mode</code>, <code>lines_changed</code>, <code>rate_5h</code>,{' '}
+            <code>rate_7d</code>, <code>burn_rate</code>, <code>cost_today</code>,{' '}
+            <code>cost_month</code>, <code>cluster</code> pra ver o efeito.
+          </div>
+          <MockDataEditor
+            mock={mock}
+            componentsInUse={cfg ? cfg.lines.flatMap((l) => l.components) : []}
+            onChange={setMock}
+          />
+        </Section>
+
+        <Section title="Como instalar">
+          <pre className="bg-[var(--color-card)] rounded p-3 text-xs overflow-x-auto">
+            {`# 1. salvar config (botão acima)
+# 2. instalar entrada no settings.json:
+claude-history statusline-install --preset compact
+
+# 3. reiniciar o Claude Code (statusLine só carrega no boot)`}
+          </pre>
+        </Section>
+
+        <Section title="Catálogo de components">
+          <div className="text-xs text-[var(--color-muted)] mb-2">
+            {components.length} components disponíveis
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {components.map((c) => (
+              <div
+                key={c.name}
+                className="border border-[var(--color-border)] rounded p-2 text-xs"
+              >
+                <div className="font-mono font-bold">{c.label}</div>
+                <div className="text-[var(--color-muted)]">{c.description}</div>
+                <div className="mt-1 flex gap-2 text-[10px] text-[var(--color-muted)]">
+                  <span className="px-1 bg-[var(--color-card)] rounded">{c.category}</span>
+                  {c.needs_history && <span className="text-amber-400">requer daemon</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      </div>
+
+      {/* Picker modal */}
+      {pickerLineIdx !== null && (
+        <ComponentPicker
+          components={components}
+          excluded={cfg.lines[pickerLineIdx].components}
+          onPick={(name) => {
+            const lines = [...cfg.lines]
+            lines[pickerLineIdx] = {
+              ...lines[pickerLineIdx],
+              components: [...lines[pickerLineIdx].components, name],
+            }
+            setCfg({ ...cfg, lines })
+            setPickerLineIdx(null)
+          }}
+          onClose={() => setPickerLineIdx(null)}
+        />
+      )}
+
+      {/* Threshold editor modal */}
+      {editingComponent && (
+        <ThresholdEditor
+          componentName={editingComponent}
+          meta={components.find((c) => c.name === editingComponent)}
+          opts={cfg.components?.[editingComponent] ?? {}}
+          onSave={(opts) => {
+            setCfg({
+              ...cfg,
+              components: { ...(cfg.components ?? {}), [editingComponent]: opts },
+            })
+            setEditingComponent(null)
+          }}
+          onClose={() => setEditingComponent(null)}
+        />
+      )}
+      </div>
+    </div>
+  )
+}
+
+function presetDescription(name: string): string {
+  switch (name) {
+    case 'compact':
+      return '1 linha enxuta: cwd · git · model · context · cost'
+    case 'max':
+      return '2 linhas com cost_today/month, ticket, cluster, lines, time'
+    case 'powerline':
+      return 'estilo powerline com graphite e segmentos coloridos'
+    default:
+      return name
+  }
+}
+
+function Section({
+  title,
+  help,
+  right,
+  children,
+}: {
+  title: string
+  help?: string
+  right?: React.ReactNode
+  children: React.ReactNode
+}) {
+  const [showHelp, setShowHelp] = useState(false)
+  return (
+    <section className="border border-[var(--color-border)] rounded p-3">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-xs uppercase tracking-wide text-[var(--color-muted)] font-bold flex items-center gap-1.5">
+          {title}
+          {help && (
+            <button
+              onClick={() => setShowHelp((v) => !v)}
+              className="w-3.5 h-3.5 rounded-full border border-[var(--color-border)] text-[10px] leading-none text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] flex items-center justify-center font-normal"
+              title="explicação"
+            >
+              ?
+            </button>
+          )}
+        </h2>
+        {right}
+      </div>
+      {showHelp && help && (
+        <div className="text-[10px] text-[var(--color-muted)] mb-2 leading-relaxed border-l-2 border-[var(--color-accent)] pl-2">
+          {help}
+        </div>
+      )}
+      {children}
+    </section>
+  )
+}
+
+// HelpSection — explicação geral expansível no topo do Studio.
+function HelpSection() {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="border border-[var(--color-accent)]/40 rounded p-3 bg-[var(--color-accent)]/5">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full text-left flex items-center justify-between text-xs"
+      >
+        <span className="font-bold">📖 Como funciona o Studio</span>
+        <span className="text-[var(--color-muted)]">{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 text-[11px] text-[var(--color-muted)] space-y-2 leading-relaxed">
+          <p>
+            <strong className="text-[var(--color-fg)]">O que é o statusline?</strong> A linha que
+            o Claude Code mostra acima do prompt. Por padrão tem só{' '}
+            <code>branch · model · mode</code>. Aqui você customiza pra mostrar cost, context %,
+            burn rate, ticket, cluster, etc.
+          </p>
+          <p>
+            <strong className="text-[var(--color-fg)]">Como o claude-history se pluga.</strong>{' '}
+            O Claude Code chama um binário a cada turno passando JSON via stdin. O nosso{' '}
+            <code>statusline-render</code> lê esse JSON, consulta o daemon (cost histórico, p90,
+            cluster), aplica seu config TOML e devolve uma linha ANSI colorida.
+          </p>
+          <p>
+            <strong className="text-[var(--color-fg)]">O que você faz aqui.</strong> Compõe a
+            linha arrastando components, escolhe theme/style, ajusta thresholds (warn/critical) e
+            simula cenários no Mock Data pra ver como ficaria. Salvar grava em{' '}
+            <code>~/.claude-history/statusline.toml</code>.
+          </p>
+          <p>
+            <strong className="text-[var(--color-fg)]">Pra plugar de verdade no Claude Code:</strong>{' '}
+            <code>claude-history statusline-install --preset compact</code> (ou max/powerline) →
+            reiniciar o Claude Code (statusLine só carrega no boot).
+          </p>
+          <p>
+            <strong className="text-[var(--color-fg)]">Engine único.</strong> Render é em Go.
+            Studio web só envia <code>config + mock</code> via POST e exibe HTML pronto. O que
+            aparece aqui é exatamente o que o Claude Code vai ver.
+          </p>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// SeverityLegend — explica as 3 cores que vários components usam.
+function SeverityLegend() {
+  return (
+    <Section
+      title="Cores de severity"
+      help="Components com has_warn_at: true reagem com cor. Edite os thresholds clicando no ⚙ do chip."
+    >
+      <div className="flex gap-3 text-[11px]">
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-green-400" />
+          <span className="text-[var(--color-muted)]">
+            <strong className="text-[var(--color-fg)]">OK</strong> — valor &lt; warn_at
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-amber-400" />
+          <span className="text-[var(--color-muted)]">
+            <strong className="text-[var(--color-fg)]">Warn</strong> — entre warn e critical
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-red-400" />
+          <span className="text-[var(--color-muted)]">
+            <strong className="text-[var(--color-fg)]">Crit</strong> — ≥ critical_at
+          </span>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+function styleDescription(s: string): string {
+  switch (s) {
+    case 'plain':
+      return 'Components separados por │ — funciona em qualquer terminal'
+    case 'powerline':
+      return 'Pílulas com transição de cor entre segments. Precisa Nerd Font pro arrow '
+    case 'capsule':
+      return 'Pílulas independentes com bordas arredondadas. Precisa Nerd Font'
+    default:
+      return s
+  }
+}
+
+function rgb(c: { r: number; g: number; b: number }) {
+  return `rgb(${c.r}, ${c.g}, ${c.b})`
+}
+
+function ThemeCard({
+  theme,
+  active,
+  onClick,
+}: {
+  theme: StatuslineThemesResp['themes'][number]
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`p-2 rounded border text-left transition-all ${
+        active
+          ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]'
+          : 'border-[var(--color-border)] hover:border-[var(--color-fg)]'
+      }`}
+    >
+      <div className="text-xs font-medium mb-1">{theme.name}</div>
+      <div
+        className="rounded px-2 py-1 text-[10px] font-mono"
+        style={{ background: rgb(theme.default.bg), color: rgb(theme.default.fg) }}
+      >
+        sample text
+      </div>
+      <div className="flex gap-1 mt-1">
+        <div
+          className="w-3 h-3 rounded-full"
+          style={{ background: rgb(theme.status.ok) }}
+          title="ok"
+        />
+        <div
+          className="w-3 h-3 rounded-full"
+          style={{ background: rgb(theme.status.warn) }}
+          title="warn"
+        />
+        <div
+          className="w-3 h-3 rounded-full"
+          style={{ background: rgb(theme.status.crit) }}
+          title="crit"
+        />
+      </div>
+    </button>
+  )
+}
+
+function LineEditor({
+  idx,
+  line,
+  components,
+  onChange,
+  onDelete,
+  onAddClick,
+  onEditThreshold,
+}: {
+  idx: number
+  line: { components: string[]; separator?: string }
+  components: StatuslineComponentMeta[]
+  onChange: (line: { components: string[]; separator?: string }) => void
+  onDelete: () => void
+  onAddClick: () => void
+  onEditThreshold: (name: string) => void
+}) {
+  const sensors = useSensors(useSensor(PointerSensor))
+  const ids = line.components
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIdx = ids.indexOf(String(active.id))
+    const newIdx = ids.indexOf(String(over.id))
+    onChange({ ...line, components: arrayMove(ids, oldIdx, newIdx) })
+  }
+
+  return (
+    <div className="border border-[var(--color-border)] rounded p-2">
+      <div className="flex items-center justify-between mb-2 text-xs">
+        <span className="text-[var(--color-muted)]">linha {idx + 1}</span>
+        <button onClick={onDelete} className="text-red-400 hover:underline">
+          remover
+        </button>
+      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
+          <div className="flex flex-wrap gap-1.5 min-h-8">
+            {ids.map((name) => {
+              const meta = components.find((c) => c.name === name)
+              return (
+                <SortableChip
+                  key={name}
+                  name={name}
+                  label={meta?.label ?? name}
+                  description={meta?.description ?? ''}
+                  needsHistory={meta?.needs_history ?? false}
+                  hasWarnAt={meta?.has_warn_at ?? false}
+                  onEditThreshold={() => onEditThreshold(name)}
+                  onRemove={() =>
+                    onChange({
+                      ...line,
+                      components: line.components.filter((c) => c !== name),
+                    })
+                  }
+                />
+              )
+            })}
+            <button
+              onClick={onAddClick}
+              className="px-2 py-1 rounded border border-dashed border-[var(--color-border)] text-xs text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]"
+            >
+              + add
+            </button>
+          </div>
+        </SortableContext>
+      </DndContext>
+      <div className="mt-2 flex items-center gap-2 text-xs text-[var(--color-muted)]">
+        <label>separator:</label>
+        <input
+          type="text"
+          value={line.separator ?? ' │ '}
+          onChange={(e) => onChange({ ...line, separator: e.target.value })}
+          className="bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-0.5 font-mono text-xs w-20"
+        />
+      </div>
+    </div>
+  )
+}
+
+function SortableChip({
+  name,
+  label,
+  description,
+  needsHistory,
+  hasWarnAt,
+  onEditThreshold,
+  onRemove,
+}: {
+  name: string
+  label: string
+  description: string
+  needsHistory: boolean
+  hasWarnAt: boolean
+  onEditThreshold: () => void
+  onRemove: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: name,
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  const tooltip =
+    description + (needsHistory ? '\n\n⚠ requer daemon claude-history ativo' : '')
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      title={tooltip}
+      className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--color-card)] border border-[var(--color-border)] text-xs cursor-grab active:cursor-grabbing"
+    >
+      {needsHistory && <span className="text-amber-400 text-[10px]" title="requer daemon">⚡</span>}
+      <span>{label}</span>
+      {hasWarnAt && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onEditThreshold()
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="text-[var(--color-muted)] hover:text-[var(--color-accent)]"
+          title="editar thresholds (warn/critical)"
+        >
+          ⚙
+        </button>
+      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove()
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="text-[var(--color-muted)] hover:text-red-400"
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
+// ThresholdEditor é um modal pra editar warn_at/critical_at de um component.
+function ThresholdEditor({
+  componentName,
+  meta,
+  opts,
+  onSave,
+  onClose,
+}: {
+  componentName: string
+  meta?: StatuslineComponentMeta
+  opts: { warn_at?: number; critical_at?: number; hide?: boolean }
+  onSave: (opts: { warn_at?: number; critical_at?: number; hide?: boolean }) => void
+  onClose: () => void
+}) {
+  const [warn, setWarn] = useState<string>(opts.warn_at?.toString() ?? '')
+  const [crit, setCrit] = useState<string>(opts.critical_at?.toString() ?? '')
+
+  const save = () => {
+    const w = warn.trim() === '' ? undefined : Number(warn)
+    const c = crit.trim() === '' ? undefined : Number(crit)
+    if ((w !== undefined && Number.isNaN(w)) || (c !== undefined && Number.isNaN(c))) {
+      alert('valores precisam ser numéricos')
+      return
+    }
+    if (w !== undefined && c !== undefined && c <= w) {
+      alert('critical_at precisa ser maior que warn_at')
+      return
+    }
+    onSave({ warn_at: w, critical_at: c, hide: opts.hide })
+  }
+
+  const reset = () => {
+    setWarn('')
+    setCrit('')
+    onSave({ hide: opts.hide })
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg w-[440px] p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm font-bold">{meta?.label ?? componentName}</div>
+            <div className="text-xs text-[var(--color-muted)]">{meta?.description}</div>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted)]">×</button>
+        </div>
+        <div className="space-y-3 text-xs">
+          <p className="text-[var(--color-muted)]">
+            <code>warn_at</code> = valor a partir do qual o component fica amarelo.{' '}
+            <code>critical_at</code> = vermelho. Vazio = usa default do component.
+          </p>
+          <div>
+            <label className="block mb-1 text-[var(--color-muted)]">warn_at</label>
+            <input
+              type="number"
+              step="any"
+              value={warn}
+              onChange={(e) => setWarn(e.target.value)}
+              placeholder="(default)"
+              className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono"
+            />
+          </div>
+          <div>
+            <label className="block mb-1 text-[var(--color-muted)]">critical_at</label>
+            <input
+              type="number"
+              step="any"
+              value={crit}
+              onChange={(e) => setCrit(e.target.value)}
+              placeholder="(default)"
+              className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono"
+            />
+          </div>
+          <ThresholdHints name={componentName} />
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={save}
+            className="flex-1 px-3 py-1.5 rounded bg-[var(--color-accent)] text-black font-medium text-sm"
+          >
+            Salvar
+          </button>
+          <button
+            onClick={reset}
+            className="px-3 py-1.5 rounded border border-[var(--color-border)] text-xs text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+          >
+            ↺ default
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ThresholdHints({ name }: { name: string }) {
+  const hints: Record<string, string> = {
+    context_pct: 'Default: warn=50, critical=80 (% do context window).',
+    cost_session: 'Default: warn=0.8×p90, critical=1.2×p90 (multiplicador). Só age se daemon up.',
+    burn_rate: 'Default: warn=1500, critical=3000 (tokens/min).',
+    rate_5h: 'Default: warn=70, critical=90 (% do bloco de 5h).',
+    rate_7d: 'Default: warn=70, critical=90 (% do bloco semanal).',
+  }
+  const h = hints[name]
+  if (!h) return null
+  return <p className="text-[10px] text-[var(--color-muted)]">{h}</p>
+}
+
+// MockDataEditor — form com campos do Input + History. Cada campo mostra
+// um indicador "✓"/"·" mostrando se ele afeta a preview atual (se o component
+// correspondente está em alguma linha).
+function MockDataEditor({
+  mock,
+  componentsInUse,
+  onChange,
+}: {
+  mock: StatuslineMock
+  componentsInUse: string[]
+  onChange: (m: StatuslineMock) => void
+}) {
+  const set = <K extends keyof StatuslineMock>(k: K, v: StatuslineMock[K]) =>
+    onChange({ ...mock, [k]: v })
+
+  const has = (name: string) => componentsInUse.includes(name)
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div>
+        <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-wide mb-1.5">
+          Input (stdin do Claude Code)
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="cwd" active={has('cwd')}>
+            <input
+              type="text"
+              value={mock.cwd}
+              onChange={(e) => set('cwd', e.target.value)}
+              className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono text-xs"
+            />
+          </Field>
+          <Field label="branch" active={has('git') || has('ticket') || has('worktree')}>
+            <input
+              type="text"
+              value={mock.branch}
+              onChange={(e) => set('branch', e.target.value)}
+              className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono text-xs"
+            />
+          </Field>
+          <Field label="model" active={has('model')}>
+            <input
+              type="text"
+              value={mock.model}
+              onChange={(e) => set('model', e.target.value)}
+              className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono text-xs"
+            />
+          </Field>
+          <Field label="vim mode" active={has('vim_mode')}>
+            <select
+              value={mock.vim_mode}
+              onChange={(e) => set('vim_mode', e.target.value as StatuslineMock['vim_mode'])}
+              className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1"
+            >
+              <option value="">(off)</option>
+              <option value="NORMAL">NORMAL</option>
+              <option value="INSERT">INSERT</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="mt-2 space-y-2">
+          <SliderField
+            label="context %"
+            value={mock.context_pct}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(v) => set('context_pct', v)}
+            active={has('context_pct')}
+          />
+          <SliderField
+            label="cost USD (session)"
+            value={mock.cost_usd}
+            min={0}
+            max={50}
+            step={0.05}
+            onChange={(v) => set('cost_usd', v)}
+            active={has('cost_session')}
+          />
+
+          <div className="grid grid-cols-2 gap-2">
+            <SliderField
+              label="rate 5h %"
+              value={mock.rate_5h_pct}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(v) => set('rate_5h_pct', v)}
+              active={has('rate_5h')}
+            />
+            <SliderField
+              label="rate 7d %"
+              value={mock.rate_7d_pct}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(v) => set('rate_7d_pct', v)}
+              active={has('rate_7d')}
+            />
+            <Field label="lines added" active={has('lines_changed')}>
+              <input
+                type="number"
+                min={0}
+                value={mock.lines_added}
+                onChange={(e) => set('lines_added', Number(e.target.value))}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono"
+              />
+            </Field>
+            <Field label="lines removed" active={has('lines_changed')}>
+              <input
+                type="number"
+                min={0}
+                value={mock.lines_removed}
+                onChange={(e) => set('lines_removed', Number(e.target.value))}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono"
+              />
+            </Field>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--color-border)] pt-3">
+        <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-wide mb-1.5">
+          History (simula daemon)
+        </div>
+        <div className="space-y-2">
+          <SliderField
+            label="burn rate (t/min)"
+            value={mock.burn_rate_tpm}
+            min={0}
+            max={5000}
+            step={50}
+            onChange={(v) => set('burn_rate_tpm', v)}
+            active={has('burn_rate')}
+          />
+          <SliderField
+            label="cost p90 USD"
+            value={mock.cost_p90}
+            min={0}
+            max={20}
+            step={0.05}
+            onChange={(v) => set('cost_p90', v)}
+            active={has('cost_session')}
+          />
+          <SliderField
+            label="cost today USD"
+            value={mock.cost_today}
+            min={0}
+            max={50}
+            step={0.1}
+            onChange={(v) => set('cost_today', v)}
+            active={has('cost_today')}
+          />
+          <Field label="cluster name" active={has('cluster')}>
+            <input
+              type="text"
+              value={mock.cluster_name}
+              onChange={(e) => set('cluster_name', e.target.value)}
+              className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono text-xs"
+            />
+          </Field>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Field({
+  label,
+  active,
+  children,
+}: {
+  label: string
+  active?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <label className="flex items-center gap-1 mb-1 text-[10px] text-[var(--color-muted)] uppercase tracking-wide">
+        <ActiveDot active={active} />
+        {label}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+function SliderField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  active,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (v: number) => void
+  active?: boolean
+}) {
+  return (
+    <div>
+      <div className="flex justify-between text-[10px] text-[var(--color-muted)] uppercase tracking-wide mb-1">
+        <span className="flex items-center gap-1">
+          <ActiveDot active={active} /> {label}
+        </span>
+        <span className="font-mono normal-case tracking-normal text-[var(--color-fg)]">
+          {step < 1 ? value.toFixed(2) : value}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full"
+      />
+    </div>
+  )
+}
+
+// ActiveDot — bolinha que mostra se o campo afeta o render atual.
+function ActiveDot({ active }: { active?: boolean }) {
+  if (active === undefined) return null
+  return (
+    <span
+      className="inline-block w-1.5 h-1.5 rounded-full"
+      style={{ background: active ? '#4ade80' : '#525252' }}
+      title={active ? 'component em uso — afeta a preview' : 'component não está em nenhuma linha'}
+    />
+  )
+}
+
+function ComponentPicker({
+  components,
+  excluded,
+  onPick,
+  onClose,
+}: {
+  components: StatuslineComponentMeta[]
+  excluded: string[]
+  onPick: (name: string) => void
+  onClose: () => void
+}) {
+  const [filter, setFilter] = useState('')
+  const available = useMemo(
+    () =>
+      components.filter(
+        (c) =>
+          !excluded.includes(c.name) &&
+          (filter === '' ||
+            c.label.toLowerCase().includes(filter.toLowerCase()) ||
+            c.name.toLowerCase().includes(filter.toLowerCase()) ||
+            c.description.toLowerCase().includes(filter.toLowerCase())),
+      ),
+    [components, excluded, filter],
+  )
+  const grouped = useMemo(() => {
+    const map: Record<string, StatuslineComponentMeta[]> = {}
+    for (const c of available) {
+      ;(map[c.category] = map[c.category] ?? []).push(c)
+    }
+    return map
+  }, [available])
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg w-[600px] max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-3 border-b border-[var(--color-border)] flex items-center gap-2">
+          <input
+            autoFocus
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="filtrar components…"
+            className="flex-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded px-3 py-1.5 text-sm"
+          />
+          <button onClick={onClose} className="text-[var(--color-muted)] hover:text-[var(--color-fg)]">
+            ×
+          </button>
+        </div>
+        <div className="p-3 overflow-auto flex-1 space-y-3">
+          {Object.entries(grouped).map(([cat, items]) => (
+            <div key={cat}>
+              <div className="text-[10px] uppercase text-[var(--color-muted)] mb-1 tracking-wide">
+                {cat}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {items.map((c) => (
+                  <button
+                    key={c.name}
+                    onClick={() => onPick(c.name)}
+                    className="text-left p-2 rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]"
+                  >
+                    <div className="text-xs font-mono font-bold">{c.label}</div>
+                    <div className="text-[10px] text-[var(--color-muted)] mt-0.5">
+                      {c.description}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {available.length === 0 && (
+            <div className="text-center text-[var(--color-muted)] py-8">
+              {filter ? 'nenhum component com esse filtro' : 'todos components já em uso'}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// AnsiPreview renderiza o HTML que vem pronto do backend Go (engine único —
+// AnsiToHTML em internal/statusline/html.go). Frontend não converte nada.
+function AnsiPreview({ html }: { html: string }) {
+  if (!html) return <span className="text-[var(--color-muted)]">renderizando…</span>
+  return <span dangerouslySetInnerHTML={{ __html: html }} />
+}
