@@ -1,8 +1,12 @@
 package statusline
 
 import (
+	"os"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 // Render é a entry point: lê config, parseia stdin, busca history (best-effort),
@@ -29,26 +33,63 @@ func RenderWith(in *Input, cfg *Config, hist *HistoryData) string {
 		Now:     time.Now(),
 	}
 
+	width := terminalWidth()
+
 	var lines []string
 	for _, line := range cfg.Lines {
 		segs := collectSegments(line.Components, ctx, cfg.Components)
 		if len(segs) == 0 {
 			continue
 		}
-		switch cfg.Style {
-		case "powerline":
-			lines = append(lines, renderPowerline(segs))
-		case "capsule":
-			lines = append(lines, renderCapsule(segs))
-		default:
-			sep := line.Separator
-			if sep == "" {
-				sep = " │ "
-			}
-			lines = append(lines, renderPlain(segs, sep, theme))
+		sep := line.Separator
+		if sep == "" {
+			sep = " │ "
 		}
+		render := func(s []Segment) string {
+			switch cfg.Style {
+			case "powerline":
+				return renderPowerline(s)
+			case "capsule":
+				return renderCapsule(s)
+			default:
+				return renderPlain(s, sep, theme)
+			}
+		}
+		out := render(segs)
+		// Auto-wrap: se a linha visivel excede a largura, dropa segments
+		// do FIM ate caber. Mantem ao menos 1 segment.
+		if cfg.AutoWrap && width > 0 && len(segs) > 1 {
+			for VisibleLen(out) > width && len(segs) > 1 {
+				segs = segs[:len(segs)-1]
+				out = render(segs)
+			}
+		}
+		lines = append(lines, out)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// terminalWidth tenta descobrir colunas via env COLUMNS ou ioctl no
+// stderr (statusline tem stdout pipado pro Claude Code, mas stderr
+// geralmente fica no tty). Devolve 0 se nao conseguir.
+func terminalWidth() int {
+	if v := os.Getenv("COLUMNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	type winsize struct {
+		Row, Col, X, Y uint16
+	}
+	var ws winsize
+	for _, fd := range []uintptr{os.Stderr.Fd(), os.Stdin.Fd()} {
+		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
+			fd, syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&ws)))
+		if errno == 0 && ws.Col > 0 {
+			return int(ws.Col)
+		}
+	}
+	return 0
 }
 
 // collectSegments resolve cada nome em Segment via registry, dropa vazios.
