@@ -69,9 +69,11 @@ func RenderWith(in *Input, cfg *Config, hist *HistoryData) string {
 	return strings.Join(lines, "\n")
 }
 
-// terminalWidth tenta descobrir colunas via env COLUMNS ou ioctl no
-// stderr (statusline tem stdout pipado pro Claude Code, mas stderr
-// geralmente fica no tty). Devolve 0 se nao conseguir.
+// terminalWidth tenta descobrir colunas. O statusline roda como subprocess
+// do Claude Code com stdin/stdout/stderr pipados (sem TTY) e sem env
+// COLUMNS, entao tentamos /dev/tty diretamente — mesmo truque do tput.
+// Ordem: COLUMNS env > ioctl em /dev/tty > ioctl em stderr/stdin.
+// Devolve 0 quando nada funciona (= sem truncate).
 func terminalWidth() int {
 	if v := os.Getenv("COLUMNS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -81,12 +83,25 @@ func terminalWidth() int {
 	type winsize struct {
 		Row, Col, X, Y uint16
 	}
-	var ws winsize
-	for _, fd := range []uintptr{os.Stderr.Fd(), os.Stdin.Fd()} {
+	tryFd := func(fd uintptr) int {
+		var ws winsize
 		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
 			fd, syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&ws)))
 		if errno == 0 && ws.Col > 0 {
 			return int(ws.Col)
+		}
+		return 0
+	}
+	if tty, err := os.OpenFile("/dev/tty", os.O_RDONLY, 0); err == nil {
+		w := tryFd(tty.Fd())
+		tty.Close()
+		if w > 0 {
+			return w
+		}
+	}
+	for _, fd := range []uintptr{os.Stderr.Fd(), os.Stdin.Fd()} {
+		if w := tryFd(fd); w > 0 {
+			return w
 		}
 	}
 	return 0
