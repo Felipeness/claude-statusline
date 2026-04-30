@@ -20,6 +20,7 @@ type Config struct {
 	Lines      []Line                   `toml:"lines" json:"lines"`
 	Components map[string]ComponentOpts `toml:"components" json:"components"`
 	History    HistoryConfig            `toml:"history" json:"history"`
+	OAuthProbe OAuthProbeConfig         `toml:"oauth_probe" json:"oauth_probe"`
 }
 
 // Line é uma linha do statusline — array ordenado de component names.
@@ -30,10 +31,11 @@ type Line struct {
 
 // ComponentOpts são overrides por-component (cores, thresholds, format).
 type ComponentOpts struct {
-	WarnAt     float64 `toml:"warn_at,omitempty" json:"warn_at,omitempty"`
-	CriticalAt float64 `toml:"critical_at,omitempty" json:"critical_at,omitempty"`
-	Format     string  `toml:"format,omitempty" json:"format,omitempty"`
-	Hide       bool    `toml:"hide,omitempty" json:"hide,omitempty"`
+	WarnAt      float64 `toml:"warn_at,omitempty" json:"warn_at,omitempty"`
+	CriticalAt  float64 `toml:"critical_at,omitempty" json:"critical_at,omitempty"`
+	Format      string  `toml:"format,omitempty" json:"format,omitempty"`
+	Hide        bool    `toml:"hide,omitempty" json:"hide,omitempty"`
+	LabelPrefix string  `toml:"label_prefix,omitempty" json:"label_prefix,omitempty"`
 }
 
 // HistoryConfig diz onde achar o daemon claude-history.
@@ -78,6 +80,12 @@ func DefaultConfig() *Config {
 		History: HistoryConfig{
 			Endpoint: "http://localhost:5555",
 			Timeout:  "80ms",
+		},
+		OAuthProbe: OAuthProbeConfig{
+			Enabled:   false, // opt-in
+			TTL:       "30s",
+			Threshold: 90,
+			Timeout:   "3s",
 		},
 	}
 }
@@ -136,6 +144,25 @@ func mergeConfig(cfg, user *Config) {
 	}
 	if user.History.Timeout != "" {
 		cfg.History.Timeout = user.History.Timeout
+	}
+	mergeOAuthProbe(&cfg.OAuthProbe, &user.OAuthProbe)
+}
+
+func mergeOAuthProbe(cfg, user *OAuthProbeConfig) {
+	if user.Enabled {
+		cfg.Enabled = true
+	}
+	if user.TTL != "" {
+		cfg.TTL = user.TTL
+	}
+	if user.Threshold > 0 {
+		cfg.Threshold = user.Threshold
+	}
+	if user.Timeout != "" {
+		cfg.Timeout = user.Timeout
+	}
+	if user.UserAgent != "" {
+		cfg.UserAgent = user.UserAgent
 	}
 }
 

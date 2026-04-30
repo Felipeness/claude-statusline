@@ -71,6 +71,11 @@ func cmdRender() {
 	if err := json.NewDecoder(os.Stdin).Decode(&in); err != nil {
 		return
 	}
+	if cfg.OAuthProbe.Enabled {
+		if probe := statusline.ProbeOAuth(cfg.OAuthProbe); probe != nil {
+			statusline.MergeProbeIntoInput(&in, probe)
+		}
+	}
 	fmt.Println(statusline.Render(&in, cfg))
 }
 
