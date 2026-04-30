@@ -25,6 +25,11 @@ type OAuthProbeConfig struct {
 	Threshold float64 `toml:"threshold" json:"threshold"` // % usada pelo auth_mode (default 90)
 	Timeout   string  `toml:"timeout" json:"timeout"`     // ex: "3s"
 	UserAgent string  `toml:"user_agent" json:"user_agent"`
+	StaleTTL  string  `toml:"stale_ttl" json:"stale_ttl"` // cache em disco usado quando probe falha (default 1h)
+}
+
+func (c OAuthProbeConfig) staleDuration() time.Duration {
+	return parseProbeDur(c.StaleTTL, time.Hour)
 }
 
 func (c OAuthProbeConfig) ttlDuration() time.Duration {
@@ -79,9 +84,15 @@ type probeCache struct {
 
 var defaultProbeCache = &probeCache{}
 
-// ProbeOAuth bate em /api/oauth/usage com cache em memoria. Devolve nil
-// (sem erro) quando nao ha credenciais OAuth ou o probe falha — fail-open
-// pra nao quebrar o render.
+// ProbeOAuth bate em /api/oauth/usage com cache em memoria + cache em
+// disco como fallback. Devolve nil (sem erro) quando nao ha credenciais
+// OAuth ou todos os caminhos falham — fail-open pra nao quebrar o render.
+//
+// Ordem:
+//   1. Cache em memoria fresco (TTL) — hit imediato
+//   2. HTTP probe — se OK, atualiza ambos os caches
+//   3. Cache em disco fresco (StaleTTL, default 1h) — usado quando HTTP
+//      falha ou retorna 429 (rate-limited pelo lado do Anthropic)
 func ProbeOAuth(cfg OAuthProbeConfig) *ProbeResult {
 	if !cfg.Enabled {
 		return nil
@@ -96,17 +107,67 @@ func ProbeOAuth(cfg OAuthProbeConfig) *ProbeResult {
 
 	token, err := readOAuthToken()
 	if err != nil || token == "" {
-		return nil
+		return readDiskCache(cfg.staleDuration())
 	}
 
 	resp, err := fetchOAuthUsage(token, cfg)
 	if err != nil {
-		return nil
+		return readDiskCache(cfg.staleDuration())
 	}
 
 	result := buildProbeResult(resp)
 	defaultProbeCache.last = result
+	writeDiskCache(result)
 	return result
+}
+
+func diskCachePath() string {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, ".cache")
+	_ = os.MkdirAll(dir, 0700)
+	return filepath.Join(dir, "claude-statusline-probe.json")
+}
+
+type diskCacheEntry struct {
+	FetchedAt int64            `json:"fetched_at"` // unix epoch
+	FiveHour  *RateLimitWindow `json:"five_hour,omitempty"`
+	SevenDay  *RateLimitWindow `json:"seven_day,omitempty"`
+}
+
+func writeDiskCache(p *ProbeResult) {
+	if p == nil {
+		return
+	}
+	entry := diskCacheEntry{
+		FetchedAt: p.FetchedAt.Unix(),
+		FiveHour:  p.FiveHour,
+		SevenDay:  p.SevenDay,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(diskCachePath(), data, 0600)
+}
+
+func readDiskCache(staleTTL time.Duration) *ProbeResult {
+	data, err := os.ReadFile(diskCachePath())
+	if err != nil {
+		return nil
+	}
+	var entry diskCacheEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return nil
+	}
+	fetched := time.Unix(entry.FetchedAt, 0)
+	if time.Since(fetched) > staleTTL {
+		return nil
+	}
+	return &ProbeResult{
+		FiveHour:  entry.FiveHour,
+		SevenDay:  entry.SevenDay,
+		FetchedAt: fetched,
+	}
 }
 
 func readOAuthToken() (string, error) {
