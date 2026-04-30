@@ -20,6 +20,10 @@ type Input struct {
 	Cost      CostInfo      `json:"cost"`
 
 	RateLimits  *RateLimits   `json:"rate_limits,omitempty"`
+	// AuthMode é populado pelo render command (nao vem do stdin) com base
+	// em env ANTHROPIC_API_KEY e na presenca de rate_limits no stdin
+	// original. Valores: "api_key" | "oauth" | "" (indeterminado).
+	AuthMode    string        `json:"-"`
 	Vim         *VimMode      `json:"vim,omitempty"`
 	OutputStyle *OutputStyle  `json:"output_style,omitempty"`
 	Agent       *AgentInfo    `json:"agent,omitempty"`

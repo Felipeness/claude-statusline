@@ -634,19 +634,23 @@ type authModeComp struct{}
 
 func (authModeComp) Name() string { return "auth_mode" }
 func (authModeComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
-	threshold := opts.CriticalAt
-	if threshold <= 0 {
-		threshold = 90
-	}
-	isAPI := os.Getenv("ANTHROPIC_API_KEY") != ""
-	if !isAPI && c.In.RateLimits != nil && c.In.RateLimits.FiveHour != nil {
-		if c.In.RateLimits.FiveHour.UsedPercentage >= threshold {
-			isAPI = true
+	// AuthMode e populado pelo cmdRender em main (detectAuthMode) com base
+	// no stdin ORIGINAL antes do probe encher rate_limits. Fallback antigo
+	// pra binarios que nao setam AuthMode.
+	mode := c.In.AuthMode
+	if mode == "" {
+		if os.Getenv("ANTHROPIC_API_KEY") != "" {
+			mode = "api_key"
+		} else if c.In.RateLimits == nil ||
+			(c.In.RateLimits.FiveHour == nil && c.In.RateLimits.SevenDay == nil) {
+			mode = "api_key"
+		} else {
+			mode = "oauth"
 		}
 	}
 	text := "[OAuth]"
 	sev := SevOK
-	if isAPI {
+	if mode == "api_key" {
 		text = "[API key]"
 		sev = SevWarn
 	}
