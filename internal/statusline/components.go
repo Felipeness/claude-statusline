@@ -238,11 +238,17 @@ func gitAheadBehind(dir string) (ahead, behind int) {
 
 func isGitRepo(dir string) bool {
 	cur := dir
-	for cur != "/" && cur != "" {
+	for cur != "" {
 		if _, err := os.Stat(filepath.Join(cur, ".git")); err == nil {
 			return true
 		}
-		cur = filepath.Dir(cur)
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			// raiz alcancada (/ no Unix, C:\ no Windows) — filepath.Dir
+			// e idempotente em raizes
+			return false
+		}
+		cur = parent
 	}
 	return false
 }
