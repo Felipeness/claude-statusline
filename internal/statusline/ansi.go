@@ -1,6 +1,9 @@
 package statusline
 
-import "fmt"
+import (
+	"fmt"
+	"unicode/utf8"
+)
 
 // Reset, Bold, BoldOff são escape codes ANSI básicos.
 const (
@@ -69,4 +72,30 @@ func Classify(value, warn, crit float64) Severity {
 		return SevWarn
 	}
 	return SevOK
+}
+
+// VisibleLen conta runes visiveis numa string ANSI: pula sequencias de
+// escape (\x1b[ ... letra final em @-~). Usado pra calcular largura real
+// renderizada quando precisamos truncar/quebrar a linha.
+func VisibleLen(s string) int {
+	count := 0
+	i := 0
+	for i < len(s) {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			// pula CSI ate letra final em 0x40..0x7E
+			i += 2
+			for i < len(s) {
+				c := s[i]
+				i++
+				if c >= 0x40 && c <= 0x7E {
+					break
+				}
+			}
+			continue
+		}
+		count++
+		i += size
+	}
+	return count
 }

@@ -1,8 +1,12 @@
 package statusline
 
 import (
+	"os"
+	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // Render é a entry point: lê config, parseia stdin, busca history (best-effort),
@@ -29,26 +33,64 @@ func RenderWith(in *Input, cfg *Config, hist *HistoryData) string {
 		Now:     time.Now(),
 	}
 
+	width := terminalWidth()
+
 	var lines []string
 	for _, line := range cfg.Lines {
 		segs := collectSegments(line.Components, ctx, cfg.Components)
 		if len(segs) == 0 {
 			continue
 		}
-		switch cfg.Style {
-		case "powerline":
-			lines = append(lines, renderPowerline(segs))
-		case "capsule":
-			lines = append(lines, renderCapsule(segs))
-		default:
-			sep := line.Separator
-			if sep == "" {
-				sep = " │ "
-			}
-			lines = append(lines, renderPlain(segs, sep, theme))
+		sep := line.Separator
+		if sep == "" {
+			sep = " │ "
 		}
+		render := func(s []Segment) string {
+			switch cfg.Style {
+			case "powerline":
+				return renderPowerline(s)
+			case "capsule":
+				return renderCapsule(s)
+			default:
+				return renderPlain(s, sep, theme)
+			}
+		}
+		out := render(segs)
+		// Auto-wrap: se a linha visivel excede a largura, dropa segments
+		// do FIM ate caber. Mantem ao menos 1 segment.
+		if cfg.AutoWrap && width > 0 && len(segs) > 1 {
+			for VisibleLen(out) > width && len(segs) > 1 {
+				segs = segs[:len(segs)-1]
+				out = render(segs)
+			}
+		}
+		lines = append(lines, out)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// terminalWidth tenta descobrir colunas. O statusline roda como subprocess
+// do Claude Code com stdin/stdout/stderr pipados (sem TTY) e normalmente
+// sem env COLUMNS, entao a ordem e:
+//   1. env COLUMNS (Claude Code as vezes propaga)
+//   2. controlling terminal direto (/dev/tty no Unix, CONIN$ no Windows)
+//   3. fallback nos fds stderr/stdin
+// Devolve 0 quando nada funciona (= sem truncate, comportamento antigo).
+func terminalWidth() int {
+	if v := os.Getenv("COLUMNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	if w := widthFromControllingTTY(); w > 0 {
+		return w
+	}
+	for _, fd := range []int{int(os.Stderr.Fd()), int(os.Stdin.Fd())} {
+		if w, _, err := term.GetSize(fd); err == nil && w > 0 {
+			return w
+		}
+	}
+	return 0
 }
 
 // collectSegments resolve cada nome em Segment via registry, dropa vazios.
