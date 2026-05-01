@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/felipeness/claude-statusline/internal/server"
 	"github.com/felipeness/claude-statusline/internal/statusline"
@@ -125,6 +126,14 @@ func cmdInstall(args []string) {
 	self, err := os.Executable()
 	if err != nil {
 		fatal(err)
+	}
+	// Em Windows, Claude Code roda o command via Git Bash (ou PowerShell
+	// quando bash ausente). Em bash, backslashes em paths nao-quoted sao
+	// interpretados como escape (\U, \b, \f viram literais), corrompendo
+	// o caminho. Forward slash funciona nos dois shells e em qualquer
+	// versao do Windows desde XP, entao normalizamos.
+	if runtime.GOOS == "windows" {
+		self = strings.ReplaceAll(self, `\`, `/`)
 	}
 	cmd := self + " render"
 	if _, err := os.Stat(configPath()); errors.Is(err, os.ErrNotExist) {
