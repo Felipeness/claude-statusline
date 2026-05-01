@@ -66,6 +66,7 @@ var componentMetas = map[string]ComponentMeta{
 	"lines_changed": {Name: "lines_changed", Label: "Linhas +/-", Category: "git", Description: "Linhas adicionadas/removidas na session"},
 	"time":          {Name: "time", Label: "Hora", Category: "system", Description: "hh:mm atual"},
 	"mcp_status":    {Name: "mcp_status", Label: "MCP status", Category: "system", Description: "Status dos MCP servers (placeholder)"},
+	"auth_mode":     {Name: "auth_mode", Label: "Modo auth", Category: "system", Description: "Chip [API key]/[OAuth] indicando auth ativa (env ANTHROPIC_API_KEY ou util OAuth >= threshold)", HasWarnAt: true},
 }
 
 // Metas devolve o catálogo de components em ordem alfabética.
@@ -323,13 +324,13 @@ func (costSessionComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
 	if cost == 0 {
 		return Segment{}
 	}
-	text := fmt.Sprintf("$%.2f", cost)
+	text := fmt.Sprintf("%s$%.2f", opts.LabelPrefix, cost)
 	sev := SevOK
 	if c.History != nil && c.History.Project.P90Cost > 0 {
 		ratio := cost / c.History.Project.P90Cost
 		sev = Classify(ratio, opts.WarnAt, opts.CriticalAt)
 		if sev != SevOK {
-			text = fmt.Sprintf("$%.2f (%.1f×p90)", cost, ratio)
+			text = fmt.Sprintf("%s$%.2f (%.1f×p90)", opts.LabelPrefix, cost, ratio)
 		}
 	}
 	seg := c.Theme.SegOf("cost_session")
@@ -421,7 +422,7 @@ func (rate5hComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
 	}
 	sev := Classify(w.UsedPercentage, opts.WarnAt, opts.CriticalAt)
 	bar := progressBar(w.UsedPercentage, 6)
-	text := fmt.Sprintf("5h %s %.0f%%", bar, w.UsedPercentage)
+	text := fmt.Sprintf("%s5h %s %.0f%%", opts.LabelPrefix, bar, w.UsedPercentage)
 	if w.ResetsAt > 0 {
 		left := time.Until(time.Unix(w.ResetsAt, 0))
 		if left > 0 {
@@ -449,7 +450,7 @@ func (rate7dComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
 	}
 	sev := Classify(w.UsedPercentage, opts.WarnAt, opts.CriticalAt)
 	bar := progressBar(w.UsedPercentage, 6)
-	text := fmt.Sprintf("7d %s %.0f%%", bar, w.UsedPercentage)
+	text := fmt.Sprintf("%s7d %s %.0f%%", opts.LabelPrefix, bar, w.UsedPercentage)
 	if w.ResetsAt > 0 {
 		left := time.Until(time.Unix(w.ResetsAt, 0))
 		if left > 0 {
@@ -624,6 +625,44 @@ func (mcpComp) Render(c *RenderCtx, _ ComponentOpts) Segment {
 }
 
 // =============================================================================
+// auth_mode — chip [API key] (amarelo) ou [OAuth] (verde) indicando a auth
+// ativa. API key e detectado via env ANTHROPIC_API_KEY ou util OAuth >=
+// threshold (Claude Code switcha pra API key quando bate o limite).
+// =============================================================================
+
+type authModeComp struct{}
+
+func (authModeComp) Name() string { return "auth_mode" }
+func (authModeComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
+	// AuthMode e populado pelo cmdRender em main (detectAuthMode) com base
+	// no stdin ORIGINAL antes do probe encher rate_limits. Fallback antigo
+	// pra binarios que nao setam AuthMode.
+	mode := c.In.AuthMode
+	if mode == "" {
+		if os.Getenv("ANTHROPIC_API_KEY") != "" {
+			mode = "api_key"
+		} else if c.In.RateLimits == nil ||
+			(c.In.RateLimits.FiveHour == nil && c.In.RateLimits.SevenDay == nil) {
+			mode = "api_key"
+		} else {
+			mode = "oauth"
+		}
+	}
+	text := "[OAuth]"
+	sev := SevOK
+	if mode == "api_key" {
+		text = "[API key]"
+		sev = SevWarn
+	}
+	seg := c.Theme.SegOf("auth_mode")
+	fg := seg.FG
+	if sev != SevOK {
+		fg = c.Theme.SeverityFG(sev)
+	}
+	return Segment{Name: "auth_mode", Text: text, FG: fg, BG: seg.BG, Bold: true}
+}
+
+// =============================================================================
 // init — registro de tudo.
 // =============================================================================
 
@@ -645,4 +684,5 @@ func init() {
 	Register(linesChangedComp{})
 	Register(timeComp{})
 	Register(mcpComp{})
+	Register(authModeComp{})
 }

@@ -71,6 +71,12 @@ func cmdRender() {
 	if err := json.NewDecoder(os.Stdin).Decode(&in); err != nil {
 		return
 	}
+	in.AuthMode = detectAuthMode(&in)
+	if cfg.OAuthProbe.Enabled {
+		if probe := statusline.ProbeOAuth(cfg.OAuthProbe); probe != nil {
+			statusline.MergeProbeIntoInput(&in, probe)
+		}
+	}
 	fmt.Println(statusline.Render(&in, cfg))
 }
 
@@ -222,6 +228,24 @@ func cmdStudio(args []string) {
 	if err := server.Run(srv, listen); err != nil {
 		fatal(err)
 	}
+}
+
+// detectAuthMode decide se a sessao do Claude Code esta autenticada via
+// env ANTHROPIC_API_KEY (ou apiKeyHelper que devolveu valor) ou via OAuth.
+// Sinais:
+//   - env ANTHROPIC_API_KEY presente: API key
+//   - input com rate_limits ausente OU vazio: API key (Claude Code so
+//     popula rate_limits quando esta em OAuth mode com cota a reportar)
+//   - caso contrario: OAuth
+func detectAuthMode(in *statusline.Input) string {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return "api_key"
+	}
+	if in.RateLimits == nil ||
+		(in.RateLimits.FiveHour == nil && in.RateLimits.SevenDay == nil) {
+		return "api_key"
+	}
+	return "oauth"
 }
 
 func configPath() string {
