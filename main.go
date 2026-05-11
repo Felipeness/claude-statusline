@@ -72,12 +72,19 @@ func cmdRender() {
 	if err := json.NewDecoder(os.Stdin).Decode(&in); err != nil {
 		return
 	}
-	in.AuthMode = detectAuthMode(&in)
+	// Snapshot do estado ORIGINAL do stdin antes do probe mergear
+	// rate_limits — detectAuthMode usa isso pra distinguir "Claude Code
+	// nos enviou rate_limits" de "probe encheu rate_limits".
+	stdinHadRateLimits := in.RateLimits != nil &&
+		(in.RateLimits.FiveHour != nil || in.RateLimits.SevenDay != nil)
+	var probe *statusline.ProbeResult
 	if cfg.OAuthProbe.Enabled {
-		if probe := statusline.ProbeOAuth(cfg.OAuthProbe); probe != nil {
+		probe = statusline.ProbeOAuth(cfg.OAuthProbe)
+		if probe != nil {
 			statusline.MergeProbeIntoInput(&in, probe)
 		}
 	}
+	in.AuthMode = detectAuthMode(stdinHadRateLimits, probe)
 	fmt.Println(statusline.Render(&in, cfg))
 }
 
@@ -240,21 +247,37 @@ func cmdStudio(args []string) {
 }
 
 // detectAuthMode decide se a sessao do Claude Code esta autenticada via
-// env ANTHROPIC_API_KEY (ou apiKeyHelper que devolveu valor) ou via OAuth.
-// Sinais:
-//   - env ANTHROPIC_API_KEY presente: API key
-//   - input com rate_limits ausente OU vazio: API key (Claude Code so
-//     popula rate_limits quando esta em OAuth mode com cota a reportar)
-//   - caso contrario: OAuth
-func detectAuthMode(in *statusline.Input) string {
+// env ANTHROPIC_API_KEY ou via OAuth (Claude Max/Pro).
+//
+// Hierarquia (do sinal mais autoritativo pro mais frouxo):
+//
+//  1. Claude Code enviou rate_limits no stdin → OAuth. Esse e o unico
+//     sinal direto da sessao corrente; CC so popula rate_limits quando
+//     a sessao roda em OAuth mode. Ganha sobre env vars porque cobre o
+//     caso "Max + ANTHROPIC_API_KEY no env como fallback de outras libs"
+//     (CC ignora a env e usa Max — o statusline tem que refletir isso).
+//
+//  2. env ANTHROPIC_API_KEY presente E stdin sem rate_limits → api_key.
+//     Cobre terminais onde a env var foi setada e CC nao tem OAuth ativo
+//     pra essa sessao (mesmo que credentials.json exista de um login
+//     anterior em outro terminal).
+//
+//  3. Probe HTTP devolveu rate limits → OAuth. Fallback pra binarios
+//     antigos de CC que nao mandam rate_limits no stdin mas tem token
+//     OAuth valido no disco.
+//
+//  4. Default → api_key.
+func detectAuthMode(stdinHadRateLimits bool, probe *statusline.ProbeResult) string {
+	if stdinHadRateLimits {
+		return "oauth"
+	}
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		return "api_key"
 	}
-	if in.RateLimits == nil ||
-		(in.RateLimits.FiveHour == nil && in.RateLimits.SevenDay == nil) {
-		return "api_key"
+	if probe != nil && (probe.FiveHour != nil || probe.SevenDay != nil) {
+		return "oauth"
 	}
-	return "oauth"
+	return "api_key"
 }
 
 func configPath() string {
