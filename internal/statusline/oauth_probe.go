@@ -256,6 +256,7 @@ func parseIsoEpoch(s string) int64 {
 		time.RFC3339,
 		"2006-01-02T15:04:05.999999-07:00",
 		"2006-01-02T15:04:05.999999Z07:00",
+		"2006-01-02",
 	}
 	for _, f := range formats {
 		if t, err := time.Parse(f, s); err == nil {

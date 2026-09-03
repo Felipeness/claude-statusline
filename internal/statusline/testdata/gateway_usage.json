@@ -1,0 +1,15 @@
+{
+  "entries": [
+    {
+      "scope": "user",
+      "calendarPeriod": "monthly",
+      "budget": {
+        "limit": { "brlLimitMicro": 600000000 },
+        "effectiveLimit": { "brlLimitMicro": 520000000 },
+        "spend": { "offerBrlMicro": 73530000, "tokens": 9700000 },
+        "window": { "start": "2026-09-01T00:00:00Z", "end": "2026-10-01T00:00:00Z" },
+        "exceeded": false
+      }
+    }
+  ]
+}
