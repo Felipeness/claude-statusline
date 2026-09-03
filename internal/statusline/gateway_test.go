@@ -34,6 +34,11 @@ func TestParseGatewayUsage(t *testing.T) {
 			want: &GatewayUsage{SpentBRLMicro: 5_000_000, LimitBRLMicro: 100_000_000, BaseLimitBRLMicro: 100_000_000},
 		},
 		{
+			name: "explicit zero effectiveLimit stays zero",
+			raw:  `{"entries":[{"budget":{"limit":{"brlLimitMicro":100000000},"effectiveLimit":{"brlLimitMicro":0},"exceeded":true}}]}`,
+			want: &GatewayUsage{LimitBRLMicro: 0, BaseLimitBRLMicro: 100_000_000, Exceeded: true},
+		},
+		{
 			name: "date-only window end and scope inside budget",
 			raw:  `{"entries":[{"budget":{"scope":"license","calendarPeriod":"weekly","window":{"end":"2026-09-08"},"exceeded":true}}]}`,
 			want: &GatewayUsage{WindowEnd: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC).Unix(), Exceeded: true, Scope: "license", CalendarPeriod: "weekly"},

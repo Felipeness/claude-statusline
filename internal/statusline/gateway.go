@@ -87,9 +87,9 @@ func ParseGatewayUsage(raw []byte) (*GatewayUsage, error) {
 	entry := resp.Entries[0]
 	budget := entry.Budget
 	baseLimit := micro(budget.Limit)
-	limit := micro(budget.EffectiveLimit)
-	if limit == 0 {
-		limit = baseLimit
+	limit := baseLimit
+	if budget.EffectiveLimit != nil {
+		limit = micro(budget.EffectiveLimit)
 	}
 	usage := &GatewayUsage{
 		LimitBRLMicro:     limit,
