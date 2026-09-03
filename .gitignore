@@ -17,3 +17,6 @@ web/bun.lockb
 
 # Local config (gerado pelo install)
 *.local
+
+# SDD workspace (superpowers, scratch por plano)
+.superpowers/
