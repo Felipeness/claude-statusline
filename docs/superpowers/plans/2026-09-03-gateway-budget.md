@@ -541,6 +541,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -607,7 +608,7 @@ func TestProbeGatewayDetailed(t *testing.T) {
 			t.Fatalf("server hits = %d, want 1", hits)
 		}
 		cached, _ := os.ReadFile(cfg.CacheFile)
-		if string(cached) == "" || contains(cached, "jwt-test") {
+		if len(cached) == 0 || strings.Contains(string(cached), "jwt-test") {
 			t.Fatalf("cache must exist and never contain the token: %s", cached)
 		}
 	})
@@ -704,6 +705,23 @@ func TestProbeGatewayDetailed(t *testing.T) {
 		}
 	})
 
+	t.Run("slow gateway respects timeout", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(300 * time.Millisecond)
+		}))
+		defer srv.Close()
+		dir := t.TempDir()
+		cfg := GatewayConfig{BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future), CacheFile: filepath.Join(dir, "cache.json"), Timeout: "50ms"}
+		start := time.Now()
+		_, err := ProbeGatewayDetailed(cfg)
+		if !errors.Is(err, ErrGatewayUnreachable) {
+			t.Fatalf("err = %v, want ErrGatewayUnreachable", err)
+		}
+		if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+			t.Fatalf("probe took %v, timeout not applied", elapsed)
+		}
+	})
+
 	t.Run("fail-open wrapper returns nil on error", func(t *testing.T) {
 		off := false
 		if got := ProbeGateway(GatewayConfig{Enabled: &off}); got != nil {
@@ -738,19 +756,9 @@ func TestGatewayConfigured(t *testing.T) {
 	}
 }
 
-func contains(data []byte, needle string) bool {
-	return len(needle) > 0 && string(data) != "" && indexOf(string(data), needle) >= 0
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
 ```
+
+(O bloco de imports desse arquivo de teste precisa de `"strings"` além dos já listados.)
 
 - [ ] **Step 2: Write the failing config test**
 

@@ -151,7 +151,7 @@ Categoria `gateway`, `NeedsGateway: true` no `ComponentMeta` (novo campo, `json:
 | `gateway_tokens` | `9.7M tokens` | some se `Tokens == 0` |
 | `gateway_reset` | `reset 01/10` | some se `WindowEnd == 0`. `label_prefix` respeitado |
 
-Todos somem quando `In.Gateway == nil`. Cores via `Theme.SegOf(name)` com fallback em `Default`; os 5 themes ganham entries pra `gateway_budget`, `gateway_tokens`, `gateway_reset`.
+Todos somem quando `In.Gateway == nil`. Cores via `Theme.SegOf(name)` com fallback em `Default`; o theme graphite (default do powerline) ganha entries pra `gateway_budget`, `gateway_tokens`, `gateway_reset`; os outros 4 themes usam `Default`, como já fazem pros components existentes.
 
 Tokens de sessão (`internal/statusline/components_tokens.go`), categoria `context`:
 
