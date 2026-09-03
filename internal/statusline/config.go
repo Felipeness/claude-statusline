@@ -21,6 +21,7 @@ type Config struct {
 	Components map[string]ComponentOpts `toml:"components" json:"components"`
 	History    HistoryConfig            `toml:"history" json:"history"`
 	OAuthProbe OAuthProbeConfig         `toml:"oauth_probe" json:"oauth_probe"`
+	Gateway    GatewayConfig            `toml:"gateway" json:"gateway"`
 }
 
 // Line é uma linha do statusline — array ordenado de component names.
@@ -71,11 +72,12 @@ func DefaultConfig() *Config {
 			},
 		},
 		Components: map[string]ComponentOpts{
-			"context_pct":  {WarnAt: 50, CriticalAt: 80},
-			"cost_session": {WarnAt: 0.8, CriticalAt: 1.2}, // multiplicador de p90
-			"burn_rate":    {WarnAt: 1500, CriticalAt: 3000},
-			"rate_5h":      {WarnAt: 70, CriticalAt: 90},
-			"rate_7d":      {WarnAt: 70, CriticalAt: 90},
+			"context_pct":    {WarnAt: 50, CriticalAt: 80},
+			"cost_session":   {WarnAt: 0.8, CriticalAt: 1.2}, // multiplicador de p90
+			"burn_rate":      {WarnAt: 1500, CriticalAt: 3000},
+			"rate_5h":        {WarnAt: 70, CriticalAt: 90},
+			"rate_7d":        {WarnAt: 70, CriticalAt: 90},
+			"gateway_budget": {WarnAt: 70, CriticalAt: 90},
 		},
 		History: HistoryConfig{
 			Endpoint: "http://localhost:5555",
@@ -86,6 +88,11 @@ func DefaultConfig() *Config {
 			TTL:       "30s",
 			Threshold: 90,
 			Timeout:   "3s",
+		},
+		Gateway: GatewayConfig{
+			TTL:      "60s",
+			StaleTTL: "1h",
+			Timeout:  "4s",
 		},
 	}
 }
@@ -146,6 +153,24 @@ func mergeConfig(cfg, user *Config) {
 		cfg.History.Timeout = user.History.Timeout
 	}
 	mergeOAuthProbe(&cfg.OAuthProbe, &user.OAuthProbe)
+	mergeGateway(&cfg.Gateway, &user.Gateway)
+}
+
+func mergeGateway(cfg, user *GatewayConfig) {
+	if user.Enabled != nil {
+		cfg.Enabled = user.Enabled
+	}
+	for _, pair := range []struct {
+		dst *string
+		src string
+	}{
+		{&cfg.BaseURL, user.BaseURL}, {&cfg.TokenFile, user.TokenFile}, {&cfg.CacheFile, user.CacheFile},
+		{&cfg.TTL, user.TTL}, {&cfg.StaleTTL, user.StaleTTL}, {&cfg.Timeout, user.Timeout},
+	} {
+		if pair.src != "" {
+			*pair.dst = pair.src
+		}
+	}
 }
 
 func mergeOAuthProbe(cfg, user *OAuthProbeConfig) {
