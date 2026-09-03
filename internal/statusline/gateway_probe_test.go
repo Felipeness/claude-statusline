@@ -34,6 +34,12 @@ func gatewayServer(t *testing.T, status int, body string, hits *int32) *httptest
 		if got := r.Header.Get("Authorization"); got != "Bearer jwt-test" {
 			t.Errorf("Authorization = %q", got)
 		}
+		if got := r.Header.Get("Accept"); got != "application/json" {
+			t.Errorf("Accept = %q", got)
+		}
+		if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "claude-statusline/") {
+			t.Errorf("User-Agent = %q, want prefix claude-statusline/", got)
+		}
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))
@@ -70,8 +76,8 @@ func TestProbeGatewayDetailed(t *testing.T) {
 		if second.Usage.SpentBRLMicro != 73_530_000 || second.Stale {
 			t.Fatalf("unexpected cached result %+v", second)
 		}
-		if hits != 1 {
-			t.Fatalf("server hits = %d, want 1", hits)
+		if got := atomic.LoadInt32(&hits); got != 1 {
+			t.Fatalf("server hits = %d, want 1", got)
 		}
 		cached, _ := os.ReadFile(cfg.CacheFile)
 		if len(cached) == 0 || strings.Contains(string(cached), "jwt-test") {
@@ -89,8 +95,24 @@ func TestProbeGatewayDetailed(t *testing.T) {
 		if !errors.Is(err, ErrGatewayTokenExpired) {
 			t.Fatalf("err = %v, want ErrGatewayTokenExpired", err)
 		}
-		if hits != 0 {
-			t.Fatalf("server hits = %d, want 0", hits)
+		if got := atomic.LoadInt32(&hits); got != 0 {
+			t.Fatalf("server hits = %d, want 0", got)
+		}
+	})
+
+	t.Run("expired token does not write negative cache", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 200, string(fixture), &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cacheFile := filepath.Join(dir, "cache.json")
+		cfg := GatewayConfig{BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, past), CacheFile: cacheFile}
+		_, err := ProbeGatewayDetailed(cfg)
+		if !errors.Is(err, ErrGatewayTokenExpired) {
+			t.Fatalf("err = %v, want ErrGatewayTokenExpired", err)
+		}
+		if _, statErr := os.Stat(cacheFile); !os.IsNotExist(statErr) {
+			t.Fatalf("expected no cache file, stat err = %v", statErr)
 		}
 	})
 
@@ -161,6 +183,130 @@ func TestProbeGatewayDetailed(t *testing.T) {
 		cfg := GatewayConfig{BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future), CacheFile: filepath.Join(dir, "cache.json")}
 		if _, err := ProbeGatewayDetailed(cfg); !errors.Is(err, ErrGatewayNoBudget) {
 			t.Fatalf("err = %v, want ErrGatewayNoBudget", err)
+		}
+	})
+
+	t.Run("negative cache throttles retries after failure", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 500, `boom`, &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cfg := GatewayConfig{
+			BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future),
+			CacheFile: filepath.Join(dir, "cache.json"), TTL: "60s", StaleTTL: "1h",
+		}
+		if _, err := ProbeGatewayDetailed(cfg); !errors.Is(err, ErrGatewayUnreachable) {
+			t.Fatalf("first call err = %v, want ErrGatewayUnreachable", err)
+		}
+		if _, err := ProbeGatewayDetailed(cfg); !errors.Is(err, ErrGatewayUnreachable) {
+			t.Fatalf("second call err = %v, want ErrGatewayUnreachable", err)
+		}
+		if got := atomic.LoadInt32(&hits); got != 1 {
+			t.Fatalf("server hits = %d, want 1", got)
+		}
+	})
+
+	t.Run("negative cache serves stale usage without http", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 200, string(fixture), &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cacheFile := filepath.Join(dir, "cache.json")
+		entry := gatewayDiskCache{
+			FetchedAt: time.Now().Add(-5 * time.Minute).Unix(),
+			Usage:     &GatewayUsage{SpentBRLMicro: 99},
+			FailedAt:  time.Now().Unix(),
+			LastError: "gateway inacessível: HTTP 500",
+		}
+		data, _ := json.Marshal(entry)
+		if err := os.WriteFile(cacheFile, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		cfg := GatewayConfig{
+			BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future),
+			CacheFile: cacheFile, TTL: "60s", StaleTTL: "1h",
+		}
+		res, err := ProbeGatewayDetailed(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Usage == nil || res.Usage.SpentBRLMicro != 99 || !res.Stale {
+			t.Fatalf("expected stale usage from negative cache, got %+v", res)
+		}
+		if got := atomic.LoadInt32(&hits); got != 0 {
+			t.Fatalf("server hits = %d, want 0", got)
+		}
+	})
+
+	t.Run("unauthorized maps to token error", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 401, `{"error":"unauthorized"}`, &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cfg := GatewayConfig{BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future), CacheFile: filepath.Join(dir, "cache.json")}
+		if _, err := ProbeGatewayDetailed(cfg); !errors.Is(err, ErrGatewayUnauthorized) {
+			t.Fatalf("err = %v, want ErrGatewayUnauthorized", err)
+		}
+		if got := atomic.LoadInt32(&hits); got != 1 {
+			t.Fatalf("server hits = %d, want 1", got)
+		}
+	})
+
+	t.Run("corrupt cache falls through to http", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 200, string(fixture), &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cacheFile := filepath.Join(dir, "cache.json")
+		if err := os.WriteFile(cacheFile, []byte(`{not json`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cfg := GatewayConfig{BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future), CacheFile: cacheFile}
+		res, err := ProbeGatewayDetailed(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Usage == nil || res.Usage.SpentBRLMicro != 73_530_000 {
+			t.Fatalf("unexpected result %+v", res)
+		}
+		if got := atomic.LoadInt32(&hits); got != 1 {
+			t.Fatalf("server hits = %d, want 1", got)
+		}
+		cached, err := os.ReadFile(cacheFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed gatewayDiskCache
+		if err := json.Unmarshal(cached, &parsed); err != nil {
+			t.Fatalf("cache file does not parse: %v", err)
+		}
+	})
+
+	t.Run("cache dir is created and written atomically", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 200, string(fixture), &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cacheFile := filepath.Join(dir, "nested", "sub", "cache.json")
+		cfg := GatewayConfig{BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future), CacheFile: cacheFile}
+		res, err := ProbeGatewayDetailed(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.CacheWriteError != nil {
+			t.Fatalf("CacheWriteError = %v, want nil", res.CacheWriteError)
+		}
+		if _, err := os.Stat(cacheFile); err != nil {
+			t.Fatalf("cache file not created: %v", err)
+		}
+		entries, err := os.ReadDir(filepath.Dir(cacheFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".tmp") {
+				t.Fatalf("leftover tmp file: %s", e.Name())
+			}
 		}
 	})
 
