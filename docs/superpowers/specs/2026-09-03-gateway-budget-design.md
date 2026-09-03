@@ -20,6 +20,19 @@ O que o script do Marcelo faz, e que precisamos cobrir:
 
 Depois desta entrega, alguém do time baixa um binário, roda `claude-statusline install --preset gateway`, reinicia o Claude Code e tem a mesma informação do script do Marcelo (e tudo que o `claude-statusline` já tinha), com `/budget` funcionando, sem jq, python ou bash.
 
+### 2.1 Critérios de sucesso (mensuráveis)
+
+| # | Critério | Como verificar |
+|---|----------|----------------|
+| CS1 | Instalação pro time em no máximo 2 comandos (baixar + `install`) e 1 reinício do Claude Code | Seguir o quick start do README numa máquina limpa |
+| CS2 | Statusline mostra os 7 dados do script do Marcelo (budget, tokens do período, reset, in, out, total, cache) | Preset `gateway` renderizado com a fixture |
+| CS3 | Nenhuma dependência externa em runtime (0 chamadas a jq/python/bash/curl) | `grep` por `exec.Command` só encontra `git` e o `openURL` do Studio |
+| CS4 | Render com cache fresco não faz nenhuma request HTTP; no máximo 1 request por 60s por máquina | Teste com `httptest.Server` contando hits |
+| CS5 | Render com gateway indisponível termina em menos de 5s (timeout 4s) e sem nada em stderr | Teste com servidor que dorme |
+| CS6 | `/budget` responde em português com gasto, teto, %, reset e estado bloqueado quando aplicável | Rodar `/budget` com fixture no lugar do gateway |
+| CS7 | Release publica 5 binários (linux amd64/arm64, darwin amd64/arm64, windows amd64) com checksums | Assets da release `v1.0.0` |
+| CS8 | `go vet` e `go test ./...` verdes em CI a cada PR | Workflow de CI |
+
 ## 3. Fora de escopo
 
 - Editar a página do Marcelo no Confluence (fica um rascunho em `docs/confluence-instalacao-time.md` pro Felipe publicar).
