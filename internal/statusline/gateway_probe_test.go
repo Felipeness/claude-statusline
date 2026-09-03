@@ -310,6 +310,54 @@ func TestProbeGatewayDetailed(t *testing.T) {
 		}
 	})
 
+	t.Run("negative cache replays unauthorized", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 401, `{"error":"unauthorized"}`, &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cfg := GatewayConfig{
+			BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future),
+			CacheFile: filepath.Join(dir, "cache.json"), TTL: "60s", StaleTTL: "1h",
+		}
+		if _, err := ProbeGatewayDetailed(cfg); !errors.Is(err, ErrGatewayUnauthorized) {
+			t.Fatalf("first call err = %v, want ErrGatewayUnauthorized", err)
+		}
+		_, err := ProbeGatewayDetailed(cfg)
+		if !errors.Is(err, ErrGatewayUnauthorized) {
+			t.Fatalf("second call err = %v, want ErrGatewayUnauthorized", err)
+		}
+		if got := atomic.LoadInt32(&hits); got != 1 {
+			t.Fatalf("server hits = %d, want 1", got)
+		}
+		if got := strings.Count(err.Error(), "refazer o login"); got != 1 {
+			t.Fatalf("err.Error() = %q, want %q exactly once, got %d", err.Error(), "refazer o login", got)
+		}
+	})
+
+	t.Run("negative cache replays no budget without duplicate text", func(t *testing.T) {
+		var hits int32
+		srv := gatewayServer(t, 200, `{"entries":[]}`, &hits)
+		defer srv.Close()
+		dir := t.TempDir()
+		cfg := GatewayConfig{
+			BaseURL: srv.URL, TokenFile: writeTokenFile(t, dir, future),
+			CacheFile: filepath.Join(dir, "cache.json"), TTL: "60s", StaleTTL: "1h",
+		}
+		if _, err := ProbeGatewayDetailed(cfg); !errors.Is(err, ErrGatewayNoBudget) {
+			t.Fatalf("first call err = %v, want ErrGatewayNoBudget", err)
+		}
+		_, err := ProbeGatewayDetailed(cfg)
+		if !errors.Is(err, ErrGatewayNoBudget) {
+			t.Fatalf("second call err = %v, want ErrGatewayNoBudget", err)
+		}
+		if got := atomic.LoadInt32(&hits); got != 1 {
+			t.Fatalf("server hits = %d, want 1", got)
+		}
+		if got := strings.Count(err.Error(), "sem budget"); got != 1 {
+			t.Fatalf("err.Error() = %q, want %q exactly once, got %d", err.Error(), "sem budget", got)
+		}
+	})
+
 	t.Run("disabled", func(t *testing.T) {
 		off := false
 		if _, err := ProbeGatewayDetailed(GatewayConfig{Enabled: &off}); !errors.Is(err, ErrGatewayDisabled) {

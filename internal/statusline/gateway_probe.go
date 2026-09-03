@@ -97,17 +97,28 @@ type GatewayProbeResult struct {
 }
 
 // gatewayDiskCache é o único cache (cada render é um processo novo). Nunca
-// guarda o token, só dados de consumo. FailedAt/LastError formam o cache
-// negativo: uma falha recente evita bater HTTP de novo a cada render
-// enquanto o gateway estiver fora do ar. Um fetch bem-sucedido limpa os
-// dois.
+// guarda o token, só dados de consumo. FailedAt/LastErrorKind/LastError
+// formam o cache negativo: uma falha recente evita bater HTTP de novo a
+// cada render enquanto o gateway estiver fora do ar. LastErrorKind é quem
+// diz qual sentinela reconstruir (negativeCacheHit nunca adivinha pelo
+// texto de LastError, que guarda só o detalhe além da sentinela). Um fetch
+// bem-sucedido limpa os três.
 type gatewayDiskCache struct {
-	FetchedAt int64           `json:"fetched_at"`
-	Usage     *GatewayUsage   `json:"usage"`
-	Raw       json.RawMessage `json:"raw,omitempty"`
-	FailedAt  int64           `json:"failed_at,omitempty"`
-	LastError string          `json:"last_error,omitempty"`
+	FetchedAt     int64           `json:"fetched_at"`
+	Usage         *GatewayUsage   `json:"usage"`
+	Raw           json.RawMessage `json:"raw,omitempty"`
+	FailedAt      int64           `json:"failed_at,omitempty"`
+	LastErrorKind string          `json:"last_error_kind,omitempty"`
+	LastError     string          `json:"last_error,omitempty"`
 }
+
+// Kinds do cache negativo: dizem a negativeCacheHit qual sentinela
+// reconstruir sem depender do texto da mensagem.
+const (
+	gatewayErrKindUnreachable  = "unreachable"
+	gatewayErrKindUnauthorized = "unauthorized"
+	gatewayErrKindNoBudget     = "no_budget"
+)
 
 // ProbeGateway é a face fail-open: nil em qualquer erro, pro render.
 func ProbeGateway(cfg GatewayConfig) *GatewayProbeResult {
@@ -174,8 +185,8 @@ func ProbeGatewayDetailed(cfg GatewayConfig) (*GatewayProbeResult, error) {
 
 // negativeCacheHit devolve (nil, nil) quando não há falha recente registrada
 // (segue o fluxo normal). Quando há, evita HTTP: usage ainda dentro de
-// StaleTTL vira resultado stale, senão devolve o erro tipado da última
-// tentativa.
+// StaleTTL vira resultado stale, senão reconstrói o erro tipado da última
+// tentativa a partir de LastErrorKind (nunca adivinhando pelo texto).
 func negativeCacheHit(cachePath string, cfg GatewayConfig) (*GatewayProbeResult, error) {
 	entry, ok := readGatewayCacheEntry(cachePath)
 	if !ok || entry.FailedAt == 0 {
@@ -190,11 +201,24 @@ func negativeCacheHit(cachePath string, cfg GatewayConfig) (*GatewayProbeResult,
 			return &GatewayProbeResult{Usage: entry.Usage, Raw: entry.Raw, FetchedAt: fetched, Stale: true}, nil
 		}
 	}
-	sentinel := ErrGatewayUnreachable
-	if entry.LastError == ErrGatewayNoBudget.Error() {
-		sentinel = ErrGatewayNoBudget
+	sentinel := gatewaySentinelForKind(entry.LastErrorKind)
+	if entry.LastError == "" {
+		return nil, sentinel
 	}
 	return nil, fmt.Errorf("%w: %s", sentinel, entry.LastError)
+}
+
+// gatewaySentinelForKind mapeia o kind gravado no cache negativo de volta
+// pro erro tipado. Kind vazio ou desconhecido cai em ErrGatewayUnreachable.
+func gatewaySentinelForKind(kind string) error {
+	switch kind {
+	case gatewayErrKindUnauthorized:
+		return ErrGatewayUnauthorized
+	case gatewayErrKindNoBudget:
+		return ErrGatewayNoBudget
+	default:
+		return ErrGatewayUnreachable
+	}
 }
 
 // staleOr devolve o cache stale (< staleTTL) quando existe, senão err.
@@ -217,14 +241,45 @@ func failWithCache(cachePath string, staleTTL time.Duration, err error) (*Gatewa
 	return staleOr(cachePath, staleTTL, err)
 }
 
+// recordGatewayFailure classifica err num kind (pra negativeCacheHit
+// reconstruir a sentinela sem adivinhar) e grava só o detalhe em LastError,
+// sem repetir o texto da sentinela.
 func recordGatewayFailure(cachePath string, err error) {
-	entry := gatewayDiskCache{FailedAt: time.Now().Unix(), LastError: err.Error()}
+	kind := gatewayFailureKind(err)
+	entry := gatewayDiskCache{
+		FailedAt:      time.Now().Unix(),
+		LastErrorKind: kind,
+		LastError:     failureDetail(err, kind),
+	}
 	if prev, ok := readGatewayCacheEntry(cachePath); ok {
 		entry.Usage = prev.Usage
 		entry.Raw = prev.Raw
 		entry.FetchedAt = prev.FetchedAt
 	}
 	_ = writeGatewayCache(cachePath, entry)
+}
+
+func gatewayFailureKind(err error) string {
+	switch {
+	case errors.Is(err, ErrGatewayUnauthorized):
+		return gatewayErrKindUnauthorized
+	case errors.Is(err, ErrGatewayNoBudget):
+		return gatewayErrKindNoBudget
+	default:
+		return gatewayErrKindUnreachable
+	}
+}
+
+// failureDetail tira o texto da sentinela (e o separador ": " ou " " que a
+// sobrar) da mensagem de err, deixando só o detalhe. Evita o "%w: %s"
+// duplicar a mensagem da sentinela quando negativeCacheHit reconstrói o
+// erro.
+func failureDetail(err error, kind string) string {
+	sentinel := gatewaySentinelForKind(kind)
+	detail := strings.TrimPrefix(err.Error(), sentinel.Error())
+	detail = strings.TrimPrefix(detail, ": ")
+	detail = strings.TrimPrefix(detail, " ")
+	return detail
 }
 
 type auth0TokenCache struct {
