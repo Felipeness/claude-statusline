@@ -31,7 +31,7 @@ USAGE:
   claude-statusline preview [--theme] [--style] [--all]
   claude-statusline studio [--port 5556]       abre Web UI Studio em http://localhost:5556
 
-PRESETS: compact (default), max, powerline
+PRESETS: compact (default), max, powerline, gateway
 THEMES:  graphite (default), nord, dracula, sakura, mono
 STYLES:  plain, powerline, capsule
 
@@ -309,11 +309,13 @@ func mockInput() *statusline.Input {
 			CurrentDir: "/Users/dev/projects/my-app",
 			ProjectDir: "/Users/dev/projects/my-app",
 		},
-		Context: statusline.ContextWindow{
-			UsedPercentage:    42,
-			TotalInputTokens:  18432,
-			TotalOutputTokens: 4521,
-		},
+		Context: func() statusline.ContextWindow {
+			cw := statusline.ContextWindow{UsedPercentage: 42, TotalInputTokens: 18432, TotalOutputTokens: 4521}
+			cw.Current.InputTokens = 3
+			cw.Current.OutputTokens = 436
+			cw.Current.CacheReadInputTokens = 38630
+			return cw
+		}(),
 		Cost: statusline.CostInfo{
 			TotalCostUSD:      0.32,
 			TotalLinesAdded:   45,
@@ -322,6 +324,10 @@ func mockInput() *statusline.Input {
 		RateLimits: &statusline.RateLimits{
 			FiveHour: &statusline.RateLimitWindow{UsedPercentage: 73},
 			SevenDay: &statusline.RateLimitWindow{UsedPercentage: 18},
+		},
+		Gateway: &statusline.GatewayUsage{
+			SpentBRLMicro: 73_530_000, LimitBRLMicro: 520_000_000, BaseLimitBRLMicro: 520_000_000,
+			Tokens: 9_700_000, WindowEnd: 1790812800, Scope: "user", CalendarPeriod: "monthly",
 		},
 		Worktree: &statusline.WorktreeInfo{Branch: "feat/CC-1234-statusline"},
 	}
