@@ -26,8 +26,8 @@ const usage = `claude-statusline — statusline custom + Studio visual pro Claud
 
 USAGE:
   claude-statusline render                     consome stdin do Claude Code, escreve linha ANSI
-  claude-statusline install [--preset X]       escreve statusLine no ~/.claude/settings.json
-                  [--refresh N] [--force]      [--uninstall remove]
+  claude-statusline install [--preset X]       escreve statusLine no ~/.claude/settings.json e o /budget em ~/.claude/commands
+                  [--refresh N] [--force]      [--uninstall remove] (preset gateway usa --refresh 60 por padrão)
   claude-statusline preview [--theme] [--style] [--all]
   claude-statusline studio [--port 5556]       abre Web UI Studio em http://localhost:5556
   claude-statusline budget [--json]            consumo no LLM Gateway da empresa (texto ou JSON pro /budget)
@@ -127,6 +127,7 @@ func cmdInstall(args []string) {
 		fatal(err)
 	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	commandsDir := filepath.Join(home, ".claude", "commands")
 	if uninstall {
 		removed, backup, err := statusline.Uninstall(settingsPath)
 		if err != nil {
@@ -137,6 +138,9 @@ func cmdInstall(args []string) {
 			return
 		}
 		fmt.Printf("✓ statusLine removido de %s\n  backup: %s\n", settingsPath, backup)
+		if removed, err := statusline.RemoveBudgetCommand(commandsDir); err == nil && removed {
+			fmt.Println("✓ /budget removido de", filepath.Join(commandsDir, "budget.md"))
+		}
 		return
 	}
 	self, err := os.Executable()
@@ -152,6 +156,9 @@ func cmdInstall(args []string) {
 		self = strings.ReplaceAll(self, `\`, `/`)
 	}
 	cmd := self + " render"
+	if preset == "gateway" && refresh == 0 {
+		refresh = 60 // budget muda sem turno novo; mesmo intervalo do script do time
+	}
 	if _, err := os.Stat(configPath()); errors.Is(err, os.ErrNotExist) {
 		cfg := statusline.Presets[preset]
 		if cfg == nil {
@@ -180,6 +187,15 @@ func cmdInstall(args []string) {
 		fmt.Println("⚠ statusLine anterior foi sobrescrito")
 	}
 	fmt.Printf("✓ statusLine instalado em %s\n  command: %s\n", settingsPath, cmd)
+	written, err := statusline.WriteBudgetCommand(commandsDir, self)
+	switch {
+	case err != nil:
+		fmt.Println("⚠ não consegui gravar o /budget:", err)
+	case written:
+		fmt.Printf("✓ /budget instalado em %s\n", filepath.Join(commandsDir, "budget.md"))
+	default:
+		fmt.Printf("⚠ %s já existe e não é nosso — preservado\n", filepath.Join(commandsDir, "budget.md"))
+	}
 	fmt.Println("\nPróximo passo: reinicia o Claude Code (statusLine só carrega no boot).")
 }
 
