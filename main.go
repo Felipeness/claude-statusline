@@ -24,6 +24,9 @@ import (
 	"github.com/felipeness/claude-statusline/internal/statusline"
 )
 
+// version é injetada no build da release: -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 const usage = `claude-statusline — statusline custom + Studio visual pro Claude Code
 
 USAGE:
@@ -50,6 +53,7 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
 	}
+	statusline.Version = version
 	switch os.Args[1] {
 	case "render":
 		cmdRender()
@@ -61,6 +65,8 @@ func main() {
 		cmdStudio(os.Args[2:])
 	case "budget":
 		cmdBudget(os.Args[2:])
+	case "version", "--version", "-v":
+		fmt.Println("claude-statusline " + version)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
