@@ -1,0 +1,21 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: build studio
+        working-directory: web
+        run: bun install --frozen-lockfile && bun run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: gofmt -l . && test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build .

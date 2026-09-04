@@ -38,6 +38,14 @@ const DEFAULT_MOCK: StatuslineMock = {
   cost_p90: 0.5,
   cost_today: 4.23,
   cluster_name: 'auth-refactor',
+  tokens_in: 3,
+  tokens_out: 436,
+  tokens_cache: 38630,
+  gateway_spent_brl: 73.53,
+  gateway_limit_brl: 520,
+  gateway_tokens: 9_700_000,
+  gateway_reset: '2026-10-01',
+  gateway_exceeded: false,
 }
 
 // mockToInput → shape Input do Claude Code (stdin).
@@ -47,7 +55,14 @@ function mockToInput(m: StatuslineMock) {
     session_id: 'preview-mock',
     model: { display_name: m.model, id: 'claude-opus-4-7' },
     workspace: { current_dir: m.cwd, project_dir: m.cwd },
-    context_window: { used_percentage: m.context_pct },
+    context_window: {
+      used_percentage: m.context_pct,
+      current_usage: {
+        input_tokens: m.tokens_in,
+        output_tokens: m.tokens_out,
+        cache_read_input_tokens: m.tokens_cache,
+      },
+    },
     cost: {
       total_cost_usd: m.cost_usd,
       total_lines_added: m.lines_added,
@@ -56,6 +71,16 @@ function mockToInput(m: StatuslineMock) {
     rate_limits: {
       five_hour: { used_percentage: m.rate_5h_pct },
       seven_day: { used_percentage: m.rate_7d_pct },
+    },
+    gateway: {
+      spent_brl_micro: Math.round(m.gateway_spent_brl * 1_000_000),
+      limit_brl_micro: Math.round(m.gateway_limit_brl * 1_000_000),
+      base_limit_brl_micro: Math.round(m.gateway_limit_brl * 1_000_000),
+      tokens: m.gateway_tokens,
+      window_end: m.gateway_reset ? Math.floor(Date.parse(m.gateway_reset + 'T00:00:00Z') / 1000) : 0,
+      exceeded: m.gateway_exceeded,
+      scope: 'user',
+      calendar_period: 'monthly',
     },
     worktree: { branch: m.branch },
     vim: m.vim_mode ? { mode: m.vim_mode } : undefined,
@@ -325,7 +350,9 @@ export function App() {
             ⚠ Mock fields só aparecem se o component correspondente estiver na linha. Adicione{' '}
             <code>vim_mode</code>, <code>lines_changed</code>, <code>rate_5h</code>,{' '}
             <code>rate_7d</code>, <code>burn_rate</code>, <code>cost_today</code>,{' '}
-            <code>cost_month</code>, <code>cluster</code> pra ver o efeito.
+            <code>cost_month</code>, <code>cluster</code>, <code>gateway_budget</code>,{' '}
+            <code>gateway_tokens</code>, <code>gateway_reset</code>, <code>tokens_in</code> pra ver
+            o efeito.
           </div>
           <MockDataEditor
             mock={mock}
@@ -337,8 +364,8 @@ export function App() {
         <Section title="Como instalar">
           <pre className="bg-[var(--color-card)] rounded p-3 text-xs overflow-x-auto">
             {`# 1. salvar config (botão acima)
-# 2. instalar entrada no settings.json:
-claude-history statusline-install --preset compact
+# 2. instalar entrada no settings.json (+ /budget em ~/.claude/commands):
+claude-statusline install --preset gateway
 
 # 3. reiniciar o Claude Code (statusLine só carrega no boot)`}
           </pre>
@@ -359,6 +386,7 @@ claude-history statusline-install --preset compact
                 <div className="mt-1 flex gap-2 text-[10px] text-[var(--color-muted)]">
                   <span className="px-1 bg-[var(--color-card)] rounded">{c.category}</span>
                   {c.needs_history && <span className="text-amber-400">requer daemon</span>}
+                  {c.needs_gateway && <span className="text-sky-400">requer gateway</span>}
                 </div>
               </div>
             ))}
@@ -413,6 +441,8 @@ function presetDescription(name: string): string {
       return '2 linhas com cost_today/month, ticket, cluster, lines, time'
     case 'powerline':
       return 'estilo powerline com graphite e segmentos coloridos'
+    case 'gateway':
+      return 'Budget do LLM Gateway em R$, tokens do período, reset e contadores da sessão (2 linhas)'
     default:
       return name
   }
@@ -478,21 +508,22 @@ function HelpSection() {
             burn rate, ticket, cluster, etc.
           </p>
           <p>
-            <strong className="text-[var(--color-fg)]">Como o claude-history se pluga.</strong>{' '}
+            <strong className="text-[var(--color-fg)]">Como o claude-statusline se pluga.</strong>{' '}
             O Claude Code chama um binário a cada turno passando JSON via stdin. O nosso{' '}
-            <code>statusline-render</code> lê esse JSON, consulta o daemon (cost histórico, p90,
-            cluster), aplica seu config TOML e devolve uma linha ANSI colorida.
+            <code>claude-statusline render</code> lê esse JSON, consulta o daemon (cost histórico,
+            p90, cluster), aplica seu config TOML e devolve uma linha ANSI colorida.
           </p>
           <p>
             <strong className="text-[var(--color-fg)]">O que você faz aqui.</strong> Compõe a
             linha arrastando components, escolhe theme/style, ajusta thresholds (warn/critical) e
             simula cenários no Mock Data pra ver como ficaria. Salvar grava em{' '}
-            <code>~/.claude-history/statusline.toml</code>.
+            <code>~/.claude-statusline/config.toml</code>.
           </p>
           <p>
             <strong className="text-[var(--color-fg)]">Pra plugar de verdade no Claude Code:</strong>{' '}
-            <code>claude-history statusline-install --preset compact</code> (ou max/powerline) →
-            reiniciar o Claude Code (statusLine só carrega no boot).
+            <code>claude-statusline install --preset gateway</code> (ou compact/max/powerline) →
+            reiniciar o Claude Code (statusLine só carrega no boot). O preset gateway também
+            instala o slash command <code>/budget</code>.
           </p>
           <p>
             <strong className="text-[var(--color-fg)]">Engine único.</strong> Render é em Go.
@@ -647,6 +678,7 @@ function LineEditor({
                   label={meta?.label ?? name}
                   description={meta?.description ?? ''}
                   needsHistory={meta?.needs_history ?? false}
+                  needsGateway={meta?.needs_gateway ?? false}
                   hasWarnAt={meta?.has_warn_at ?? false}
                   onEditThreshold={() => onEditThreshold(name)}
                   onRemove={() =>
@@ -685,6 +717,7 @@ function SortableChip({
   label,
   description,
   needsHistory,
+  needsGateway,
   hasWarnAt,
   onEditThreshold,
   onRemove,
@@ -693,6 +726,7 @@ function SortableChip({
   label: string
   description: string
   needsHistory: boolean
+  needsGateway: boolean
   hasWarnAt: boolean
   onEditThreshold: () => void
   onRemove: () => void
@@ -706,7 +740,9 @@ function SortableChip({
     opacity: isDragging ? 0.5 : 1,
   }
   const tooltip =
-    description + (needsHistory ? '\n\n⚠ requer daemon claude-history ativo' : '')
+    description +
+    (needsHistory ? '\n\n⚠ requer daemon claude-history ativo' : '') +
+    (needsGateway ? '\n\n◈ requer LLM Gateway configurado (ANTHROPIC_BASE_URL + login Auth0)' : '')
   return (
     <div
       ref={setNodeRef}
@@ -717,6 +753,7 @@ function SortableChip({
       className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--color-card)] border border-[var(--color-border)] text-xs cursor-grab active:cursor-grabbing"
     >
       {needsHistory && <span className="text-amber-400 text-[10px]" title="requer daemon">⚡</span>}
+      {needsGateway && <span className="text-sky-400 text-[10px]" title="requer gateway">◈</span>}
       <span>{label}</span>
       {hasWarnAt && (
         <button
@@ -976,6 +1013,48 @@ function MockDataEditor({
                 onChange={(e) => set('lines_removed', Number(e.target.value))}
                 className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono"
               />
+            </Field>
+            <Field label="tokens in" active={has('tokens_in') || has('tokens_total')}>
+              <input type="number" min={0} value={mock.tokens_in} onChange={(e) => set('tokens_in', Number(e.target.value))}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono" />
+            </Field>
+            <Field label="tokens out" active={has('tokens_out') || has('tokens_total')}>
+              <input type="number" min={0} value={mock.tokens_out} onChange={(e) => set('tokens_out', Number(e.target.value))}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono" />
+            </Field>
+            <Field label="tokens cache" active={has('tokens_cache')}>
+              <input type="number" min={0} value={mock.tokens_cache} onChange={(e) => set('tokens_cache', Number(e.target.value))}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono" />
+            </Field>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--color-border)] pt-3">
+        <div className="text-[10px] text-[var(--color-muted)] uppercase tracking-wide mb-1.5">
+          Gateway (simula /v1/usage do LLM Gateway)
+        </div>
+        <div className="space-y-2">
+          <SliderField label="gasto R$" value={mock.gateway_spent_brl} min={0} max={1000} step={0.5}
+            onChange={(v) => set('gateway_spent_brl', v)} active={has('gateway_budget')} />
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="limite R$" active={has('gateway_budget')}>
+              <input type="number" min={0} step={10} value={mock.gateway_limit_brl} onChange={(e) => set('gateway_limit_brl', Number(e.target.value))}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono" />
+            </Field>
+            <Field label="tokens período" active={has('gateway_tokens')}>
+              <input type="number" min={0} step={100000} value={mock.gateway_tokens} onChange={(e) => set('gateway_tokens', Number(e.target.value))}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono" />
+            </Field>
+            <Field label="reset (data)" active={has('gateway_reset')}>
+              <input type="date" value={mock.gateway_reset} onChange={(e) => set('gateway_reset', e.target.value)}
+                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded px-2 py-1 font-mono" />
+            </Field>
+            <Field label="bloqueado" active={has('gateway_budget')}>
+              <label className="flex items-center gap-2 py-1">
+                <input type="checkbox" checked={mock.gateway_exceeded} onChange={(e) => set('gateway_exceeded', e.target.checked)} />
+                <span>exceeded</span>
+              </label>
             </Field>
           </div>
         </div>

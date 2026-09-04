@@ -89,10 +89,10 @@ var defaultProbeCache = &probeCache{}
 // OAuth ou todos os caminhos falham — fail-open pra nao quebrar o render.
 //
 // Ordem:
-//   1. Cache em memoria fresco (TTL) — hit imediato
-//   2. HTTP probe — se OK, atualiza ambos os caches
-//   3. Cache em disco fresco (StaleTTL, default 1h) — usado quando HTTP
-//      falha ou retorna 429 (rate-limited pelo lado do Anthropic)
+//  1. Cache em memoria fresco (TTL) — hit imediato
+//  2. HTTP probe — se OK, atualiza ambos os caches
+//  3. Cache em disco fresco (StaleTTL, default 1h) — usado quando HTTP
+//     falha ou retorna 429 (rate-limited pelo lado do Anthropic)
 func ProbeOAuth(cfg OAuthProbeConfig) *ProbeResult {
 	if !cfg.Enabled {
 		return nil
@@ -256,6 +256,7 @@ func parseIsoEpoch(s string) int64 {
 		time.RFC3339,
 		"2006-01-02T15:04:05.999999-07:00",
 		"2006-01-02T15:04:05.999999Z07:00",
+		"2006-01-02",
 	}
 	for _, f := range formats {
 		if t, err := time.Parse(f, s); err == nil {

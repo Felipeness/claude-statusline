@@ -19,11 +19,15 @@ type Input struct {
 	Context   ContextWindow `json:"context_window"`
 	Cost      CostInfo      `json:"cost"`
 
-	RateLimits  *RateLimits   `json:"rate_limits,omitempty"`
+	RateLimits *RateLimits `json:"rate_limits,omitempty"`
 	// AuthMode é populado pelo render command (nao vem do stdin) com base
 	// em env ANTHROPIC_API_KEY e na presenca de rate_limits no stdin
-	// original. Valores: "api_key" | "oauth" | "" (indeterminado).
-	AuthMode    string        `json:"-"`
+	// original. Valores: "api_key" | "oauth" | "gateway" (sessão via LLM
+	// Gateway da empresa) | "" (indeterminado).
+	AuthMode string `json:"-"`
+	// Gateway é o consumo no LLM Gateway da empresa. Preenchido pelo probe
+	// no render (nunca vem do stdin do Claude Code) ou pelo mock do Studio.
+	Gateway     *GatewayUsage `json:"gateway,omitempty"`
 	Vim         *VimMode      `json:"vim,omitempty"`
 	OutputStyle *OutputStyle  `json:"output_style,omitempty"`
 	Agent       *AgentInfo    `json:"agent,omitempty"`

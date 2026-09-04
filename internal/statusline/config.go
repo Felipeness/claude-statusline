@@ -3,24 +3,26 @@ package statusline
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/BurntSushi/toml"
 )
 
-// Config é a config persistente em ~/.claude-history/statusline.toml.
+// Config é a config persistente em ~/.claude-statusline/config.toml.
 // Estrutura inspirada em ccstatusline (lines + components) com TOML
 // (tipado e legível) ao invés de JSON.
 type Config struct {
-	Theme    string `toml:"theme" json:"theme"`         // graphite|nord|dracula|sakura|mono
-	Style    string `toml:"style" json:"style"`         // plain|powerline|capsule
-	Charset  string `toml:"charset" json:"charset"`     // unicode|ascii
+	Theme    string `toml:"theme" json:"theme"`     // graphite|nord|dracula|sakura|mono
+	Style    string `toml:"style" json:"style"`     // plain|powerline|capsule
+	Charset  string `toml:"charset" json:"charset"` // unicode|ascii
 	AutoWrap bool   `toml:"auto_wrap" json:"auto_wrap"`
 
 	Lines      []Line                   `toml:"lines" json:"lines"`
 	Components map[string]ComponentOpts `toml:"components" json:"components"`
 	History    HistoryConfig            `toml:"history" json:"history"`
 	OAuthProbe OAuthProbeConfig         `toml:"oauth_probe" json:"oauth_probe"`
+	Gateway    GatewayConfig            `toml:"gateway" json:"gateway"`
 }
 
 // Line é uma linha do statusline — array ordenado de component names.
@@ -56,7 +58,7 @@ func (h HistoryConfig) TimeoutDuration() time.Duration {
 	return d
 }
 
-// DefaultConfig é o ponto de partida quando ~/.claude-history/statusline.toml
+// DefaultConfig é o ponto de partida quando ~/.claude-statusline/config.toml
 // não existe. 2 linhas, 7 components, tema graphite, style plain.
 func DefaultConfig() *Config {
 	return &Config{
@@ -71,11 +73,12 @@ func DefaultConfig() *Config {
 			},
 		},
 		Components: map[string]ComponentOpts{
-			"context_pct":  {WarnAt: 50, CriticalAt: 80},
-			"cost_session": {WarnAt: 0.8, CriticalAt: 1.2}, // multiplicador de p90
-			"burn_rate":    {WarnAt: 1500, CriticalAt: 3000},
-			"rate_5h":      {WarnAt: 70, CriticalAt: 90},
-			"rate_7d":      {WarnAt: 70, CriticalAt: 90},
+			"context_pct":    {WarnAt: 50, CriticalAt: 80},
+			"cost_session":   {WarnAt: 0.8, CriticalAt: 1.2}, // multiplicador de p90
+			"burn_rate":      {WarnAt: 1500, CriticalAt: 3000},
+			"rate_5h":        {WarnAt: 70, CriticalAt: 90},
+			"rate_7d":        {WarnAt: 70, CriticalAt: 90},
+			"gateway_budget": {WarnAt: 70, CriticalAt: 90},
 		},
 		History: HistoryConfig{
 			Endpoint: "http://localhost:5555",
@@ -86,6 +89,11 @@ func DefaultConfig() *Config {
 			TTL:       "30s",
 			Threshold: 90,
 			Timeout:   "3s",
+		},
+		Gateway: GatewayConfig{
+			TTL:      "60s",
+			StaleTTL: "1h",
+			Timeout:  "4s",
 		},
 	}
 }
@@ -111,7 +119,7 @@ func LoadConfig(path string) (*Config, error) {
 
 // SaveConfig escreve o config como TOML em path. Cria parent dir se preciso.
 func SaveConfig(path string, cfg *Config) error {
-	if err := os.MkdirAll(parentDir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 	f, err := os.Create(path)
@@ -146,6 +154,24 @@ func mergeConfig(cfg, user *Config) {
 		cfg.History.Timeout = user.History.Timeout
 	}
 	mergeOAuthProbe(&cfg.OAuthProbe, &user.OAuthProbe)
+	mergeGateway(&cfg.Gateway, &user.Gateway)
+}
+
+func mergeGateway(cfg, user *GatewayConfig) {
+	if user.Enabled != nil {
+		cfg.Enabled = user.Enabled
+	}
+	for _, pair := range []struct {
+		dst *string
+		src string
+	}{
+		{&cfg.BaseURL, user.BaseURL}, {&cfg.TokenFile, user.TokenFile}, {&cfg.CacheFile, user.CacheFile},
+		{&cfg.TTL, user.TTL}, {&cfg.StaleTTL, user.StaleTTL}, {&cfg.Timeout, user.Timeout},
+	} {
+		if pair.src != "" {
+			*pair.dst = pair.src
+		}
+	}
 }
 
 func mergeOAuthProbe(cfg, user *OAuthProbeConfig) {
@@ -164,13 +190,4 @@ func mergeOAuthProbe(cfg, user *OAuthProbeConfig) {
 	if user.UserAgent != "" {
 		cfg.UserAgent = user.UserAgent
 	}
-}
-
-func parentDir(p string) string {
-	for i := len(p) - 1; i >= 0; i-- {
-		if p[i] == '/' {
-			return p[:i]
-		}
-	}
-	return "."
 }

@@ -65,11 +65,11 @@ func AnsiToHTML(ansi string) string {
 
 // spanState carrega cor/atributos correntes pra construir <span style="...">.
 type spanState struct {
-	fg     string // "rgb(r,g,b)" ou ""
-	bg     string
-	bold   bool
-	dim    bool
-	reset  bool // true = só recebemos "0", próximo passo deve fechar
+	fg    string // "rgb(r,g,b)" ou ""
+	bg    string
+	bold  bool
+	dim   bool
+	reset bool // true = só recebemos "0", próximo passo deve fechar
 }
 
 func (s spanState) isReset() bool {

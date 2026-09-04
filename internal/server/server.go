@@ -1,10 +1,11 @@
 // Package server é o HTTP backend mínimo do Studio web. 5 endpoints:
-//   GET  /api/components — catálogo dos 16 components
-//   GET  /api/themes — 5 themes + 3 styles com cores RGB
-//   GET  /api/presets — 3 presets canônicos
-//   GET  /api/config — config atual (TOML → JSON)
-//   POST /api/config — salva config nova
-//   POST /api/render — recebe {config, mock_input, mock_history} → {ansi, html}
+//
+//	GET  /api/components — catálogo dos 25 components
+//	GET  /api/themes — 5 themes + 3 styles com cores RGB
+//	GET  /api/presets — 4 presets canônicos
+//	GET  /api/config — config atual (TOML → JSON)
+//	POST /api/config — salva config nova
+//	POST /api/render — recebe {config, mock_input, mock_history} → {ansi, html}
 package server
 
 import (
@@ -80,7 +81,7 @@ func (s *Server) handleThemes(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		o := themeOut{
-			Name:    t.Name,
+			Name: t.Name,
 			Default: segOut{
 				BG: colorOut{t.Default.BG.R, t.Default.BG.G, t.Default.BG.B},
 				FG: colorOut{t.Default.FG.R, t.Default.FG.G, t.Default.FG.B},
@@ -192,11 +193,13 @@ func defaultMockInput() *statusline.Input {
 			CurrentDir: "/Users/dev/projects/my-app",
 			ProjectDir: "/Users/dev/projects/my-app",
 		},
-		Context: statusline.ContextWindow{
-			UsedPercentage:    42,
-			TotalInputTokens:  18432,
-			TotalOutputTokens: 4521,
-		},
+		Context: func() statusline.ContextWindow {
+			cw := statusline.ContextWindow{UsedPercentage: 42, TotalInputTokens: 18432, TotalOutputTokens: 4521}
+			cw.Current.InputTokens = 3
+			cw.Current.OutputTokens = 436
+			cw.Current.CacheReadInputTokens = 38630
+			return cw
+		}(),
 		Cost: statusline.CostInfo{
 			TotalCostUSD:      0.32,
 			TotalLinesAdded:   45,
@@ -205,6 +208,10 @@ func defaultMockInput() *statusline.Input {
 		RateLimits: &statusline.RateLimits{
 			FiveHour: &statusline.RateLimitWindow{UsedPercentage: 73},
 			SevenDay: &statusline.RateLimitWindow{UsedPercentage: 18},
+		},
+		Gateway: &statusline.GatewayUsage{
+			SpentBRLMicro: 73_530_000, LimitBRLMicro: 520_000_000, BaseLimitBRLMicro: 520_000_000,
+			Tokens: 9_700_000, WindowEnd: 1790812800, Scope: "user", CalendarPeriod: "monthly",
 		},
 		Worktree: &statusline.WorktreeInfo{Branch: "feat/CC-1234-statusline"},
 	}
