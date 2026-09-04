@@ -36,3 +36,13 @@ func TestDefaultConfigGatewayEnabled(t *testing.T) {
 		t.Fatal("gateway must be enabled by default")
 	}
 }
+
+func TestSaveConfigCreatesParentDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "dir", "config.toml")
+	if err := SaveConfig(path, DefaultConfig()); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("config not written: %v", err)
+	}
+}

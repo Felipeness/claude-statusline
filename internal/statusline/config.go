@@ -3,6 +3,7 @@ package statusline
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -118,7 +119,7 @@ func LoadConfig(path string) (*Config, error) {
 
 // SaveConfig escreve o config como TOML em path. Cria parent dir se preciso.
 func SaveConfig(path string, cfg *Config) error {
-	if err := os.MkdirAll(parentDir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 	f, err := os.Create(path)
@@ -189,13 +190,4 @@ func mergeOAuthProbe(cfg, user *OAuthProbeConfig) {
 	if user.UserAgent != "" {
 		cfg.UserAgent = user.UserAgent
 	}
-}
-
-func parentDir(p string) string {
-	for i := len(p) - 1; i >= 0; i-- {
-		if p[i] == '/' {
-			return p[:i]
-		}
-	}
-	return "."
 }
