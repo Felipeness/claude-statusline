@@ -4,6 +4,7 @@ export type StatuslineComponentMeta = {
   category: string
   description: string
   needs_history: boolean
+  needs_gateway: boolean
   has_warn_at: boolean
 }
 
@@ -41,6 +42,15 @@ export type StatuslineConfig = {
   lines: StatuslineLine[]
   components?: Record<string, StatuslineComponentOpts>
   history?: { endpoint?: string; timeout?: string }
+  gateway?: {
+    enabled?: boolean
+    base_url?: string
+    token_file?: string
+    cache_file?: string
+    ttl?: string
+    stale_ttl?: string
+    timeout?: string
+  }
 }
 
 export type StatuslineMock = {
@@ -58,4 +68,12 @@ export type StatuslineMock = {
   cost_p90: number
   cost_today: number
   cluster_name: string
+  tokens_in: number
+  tokens_out: number
+  tokens_cache: number
+  gateway_spent_brl: number
+  gateway_limit_brl: number
+  gateway_tokens: number
+  gateway_reset: string // YYYY-MM-DD
+  gateway_exceeded: boolean
 }
