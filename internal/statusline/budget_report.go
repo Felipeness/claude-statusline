@@ -113,10 +113,10 @@ func (r BudgetReport) periodLine() string {
 }
 
 func (r BudgetReport) scopeLine() string {
-	line := "individual"
 	if r.Scope == "license" {
-		line = "licença (pool compartilhado, valores são o agregado da licença)"
+		return "licença (pool compartilhado, valores são o agregado da licença)"
 	}
+	line := "individual"
 	if r.BaseLimitBRL > r.LimitBRL && r.LimitBRL > 0 {
 		line += " (teto individual limitado pelo teto da licença)"
 	}

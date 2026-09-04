@@ -72,9 +72,16 @@ func TestBudgetReportText(t *testing.T) {
 			mustNot:  []string{"licença", "dados de"},
 		},
 		{
-			name:     "license pool and capped limit",
+			name:     "license pool",
 			usage:    GatewayUsage{SpentBRLMicro: 10, LimitBRLMicro: 100_000_000, BaseLimitBRLMicro: 200_000_000, Scope: "license", CalendarPeriod: "weekly"},
-			mustHave: []string{"licença (pool compartilhado", "teto individual limitado pelo teto da licença", "semanal"},
+			mustHave: []string{"licença (pool compartilhado", "semanal"},
+			mustNot:  []string{"teto individual limitado pelo teto da licença"},
+		},
+		{
+			name:     "individual capped limit",
+			usage:    GatewayUsage{SpentBRLMicro: 10, LimitBRLMicro: 100_000_000, BaseLimitBRLMicro: 200_000_000, Scope: "user", CalendarPeriod: "weekly"},
+			mustHave: []string{"individual", "teto individual limitado pelo teto da licença", "semanal"},
+			mustNot:  []string{"licença (pool compartilhado"},
 		},
 		{
 			name:     "blocked",

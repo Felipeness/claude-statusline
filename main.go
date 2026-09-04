@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,7 +100,7 @@ func cmdRender() {
 
 func cmdInstall(args []string) {
 	preset := "compact"
-	refresh := 0
+	refresh := -1 // -1 = flag ausente, distingue de "--refresh 0" explícito
 	force := false
 	uninstall := false
 	for i := 0; i < len(args); i++ {
@@ -133,14 +134,20 @@ func cmdInstall(args []string) {
 		if err != nil {
 			fatal(err)
 		}
+		// Roda e reporta antes de qualquer return: senão um settings.json
+		// sem statusLine (ou um segundo --uninstall) deixa o /budget órfão.
+		budgetRemoved, budgetErr := statusline.RemoveBudgetCommand(commandsDir)
+		switch {
+		case budgetErr != nil:
+			fmt.Println("⚠ não consegui remover o /budget:", budgetErr)
+		case budgetRemoved:
+			fmt.Println("✓ /budget removido de", statusline.BudgetCommandPath(commandsDir))
+		}
 		if !removed {
 			fmt.Println("settings.json não tinha statusLine — nada a remover")
 			return
 		}
 		fmt.Printf("✓ statusLine removido de %s\n  backup: %s\n", settingsPath, backup)
-		if removed, err := statusline.RemoveBudgetCommand(commandsDir); err == nil && removed {
-			fmt.Println("✓ /budget removido de", filepath.Join(commandsDir, "budget.md"))
-		}
 		return
 	}
 	self, err := os.Executable()
@@ -156,8 +163,11 @@ func cmdInstall(args []string) {
 		self = strings.ReplaceAll(self, `\`, `/`)
 	}
 	cmd := self + " render"
-	if preset == "gateway" && refresh == 0 {
+	if preset == "gateway" && refresh == -1 {
 		refresh = 60 // budget muda sem turno novo; mesmo intervalo do script do time
+	}
+	if refresh == -1 {
+		refresh = 0 // flag ausente e preset não é gateway: event-driven, sem interval
 	}
 	if _, err := os.Stat(configPath()); errors.Is(err, os.ErrNotExist) {
 		cfg := statusline.Presets[preset]
@@ -192,9 +202,9 @@ func cmdInstall(args []string) {
 	case err != nil:
 		fmt.Println("⚠ não consegui gravar o /budget:", err)
 	case written:
-		fmt.Printf("✓ /budget instalado em %s\n", filepath.Join(commandsDir, "budget.md"))
+		fmt.Printf("✓ /budget instalado em %s\n", statusline.BudgetCommandPath(commandsDir))
 	default:
-		fmt.Printf("⚠ %s já existe e não é nosso — preservado\n", filepath.Join(commandsDir, "budget.md"))
+		fmt.Printf("⚠ %s já existe e não é nosso — preservado\n", statusline.BudgetCommandPath(commandsDir))
 	}
 	fmt.Println("\nPróximo passo: reinicia o Claude Code (statusLine só carrega no boot).")
 }
@@ -205,30 +215,54 @@ func cmdBudget(args []string) {
 	asJSON := len(args) > 0 && args[0] == "--json"
 	cfg, err := statusline.LoadConfig(configPath())
 	if err != nil {
-		printBudgetError(asJSON, err)
+		writeBudgetError(os.Stdout, asJSON, err)
 		return
 	}
+	runBudget(os.Stdout, cfg, asJSON)
+}
+
+// runBudget faz o probe do gateway e escreve o relatório em w — texto pro
+// humano, ou JSON pro /budget. Isolado de cmdBudget (que resolve config e
+// stdout) pra dar pra testar sem tocar rede real: um GatewayConfig com
+// Enabled=false já basta pra exercitar o caminho de erro determinístico.
+func runBudget(w io.Writer, cfg *statusline.Config, asJSON bool) {
 	res, err := statusline.ProbeGatewayDetailed(cfg.Gateway)
 	if err != nil {
-		printBudgetError(asJSON, err)
+		writeBudgetError(w, asJSON, err)
 		return
 	}
 	opts := cfg.Components["gateway_budget"]
 	report := statusline.NewBudgetReport(res, opts.WarnAt, opts.CriticalAt)
-	if asJSON {
-		_ = json.NewEncoder(os.Stdout).Encode(report)
+	if !asJSON {
+		fmt.Fprint(w, report.Text())
 		return
 	}
-	fmt.Print(report.Text())
+	if err := json.NewEncoder(w).Encode(report); err != nil {
+		// w falhou (ex: pipe fechado do lado do Claude Code): não dá pra
+		// escrever o relatório nele, mas ainda reportamos o problema em
+		// stderr e seguimos exit 0 — nunca quebrar o /budget.
+		writeBudgetErrorEnvelope(os.Stderr, err.Error())
+	}
 }
 
-func printBudgetError(asJSON bool, err error) {
+// writeBudgetError escreve a mensagem de erro tipado do probe em w: texto
+// pro humano, ou envelope {"error": ...} em JSON. Se o encode do envelope em
+// w falhar, cai pra stderr via Marshal direto (sem Encoder), que não falha
+// pra um map[string]string.
+func writeBudgetError(w io.Writer, asJSON bool, err error) {
 	msg := statusline.BudgetErrorMessage(err)
-	if asJSON {
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": msg})
+	if !asJSON {
+		fmt.Fprintln(w, "Budget do LLM Gateway indisponível:", msg)
 		return
 	}
-	fmt.Println("Budget do LLM Gateway indisponível:", msg)
+	if encErr := json.NewEncoder(w).Encode(map[string]string{"error": msg}); encErr != nil {
+		writeBudgetErrorEnvelope(os.Stderr, msg)
+	}
+}
+
+func writeBudgetErrorEnvelope(w io.Writer, msg string) {
+	data, _ := json.Marshal(map[string]string{"error": msg})
+	fmt.Fprintln(w, string(data))
 }
 
 func cmdPreview(args []string) {
