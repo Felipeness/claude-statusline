@@ -41,10 +41,11 @@ type Component interface {
 type ComponentMeta struct {
 	Name        string `json:"name"`
 	Label       string `json:"label"`
-	Category    string `json:"category"` // path|git|model|context|cost|limits|history|system
+	Category    string `json:"category"` // path|git|model|context|cost|limits|history|system|gateway
 	Description string `json:"description"`
 	NeedsHist   bool   `json:"needs_history"` // true → só funciona com daemon up
 	HasWarnAt   bool   `json:"has_warn_at"`   // true → aceita warn_at/critical_at
+	NeedsGateway bool  `json:"needs_gateway"` // true → só funciona com LLM Gateway configurado
 }
 
 // componentMetas catalogo manual — fonte de verdade pra UI.
@@ -67,6 +68,9 @@ var componentMetas = map[string]ComponentMeta{
 	"time":          {Name: "time", Label: "Hora", Category: "system", Description: "hh:mm atual"},
 	"mcp_status":    {Name: "mcp_status", Label: "MCP status", Category: "system", Description: "Status dos MCP servers (placeholder)"},
 	"auth_mode":     {Name: "auth_mode", Label: "Modo auth", Category: "system", Description: "Chip [API key]/[OAuth] indicando auth ativa (env ANTHROPIC_API_KEY ou util OAuth >= threshold)", HasWarnAt: true},
+	"gateway_budget": {Name: "gateway_budget", Label: "Budget gateway", Category: "gateway", Description: "R$ gasto / R$ limite (%) no LLM Gateway, 🚫 quando bloqueado — requer gateway", NeedsGateway: true, HasWarnAt: true},
+	"gateway_tokens": {Name: "gateway_tokens", Label: "Tokens período", Category: "gateway", Description: "Tokens processados no período atual (todas as sessões) — requer gateway", NeedsGateway: true},
+	"gateway_reset":  {Name: "gateway_reset", Label: "Reset budget", Category: "gateway", Description: "Data em que o budget zera (reset dd/mm) — requer gateway", NeedsGateway: true},
 }
 
 // Metas devolve o catálogo de components em ordem alfabética.

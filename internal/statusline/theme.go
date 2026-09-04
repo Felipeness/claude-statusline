@@ -80,6 +80,9 @@ func graphiteTheme() *Theme {
 			"ticket":       {BG: Hex("#2d2d2d"), FG: Hex("#34d399")},
 			"cluster":      {BG: Hex("#2d2d2d"), FG: Hex("#c4b5fd")},
 			"vim_mode":     {BG: Hex("#2d2d2d"), FG: Hex("#fbbf24")},
+			"gateway_budget": {BG: Hex("#4c1d95"), FG: Hex("#ede9fe")},
+			"gateway_tokens": {BG: Hex("#134e4a"), FG: Hex("#ccfbf1")},
+			"gateway_reset":  {BG: Hex("#1e3a8a"), FG: Hex("#dbeafe")},
 		},
 		Status: StatusColors{
 			OK:   Hex("#4ade80"),
