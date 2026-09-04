@@ -114,6 +114,38 @@ func Install(opts InstallOptions) (*InstallResult, error) {
 	return res, nil
 }
 
+// ApplyPreset grava o preset no configPath. Config ausente: grava. Config
+// existente: só sobrescreve com force, fazendo backup <path>.bak.<stamp>;
+// sem force devolve applied=false e quem chama avisa o usuário.
+func ApplyPreset(configPath string, cfg *Config, force bool) (applied bool, backup string, err error) {
+	_, statErr := os.Stat(configPath)
+	switch {
+	case os.IsNotExist(statErr):
+		if err := SaveConfig(configPath, cfg); err != nil {
+			return false, "", fmt.Errorf("save config: %w", err)
+		}
+		return true, "", nil
+	case statErr != nil:
+		return false, "", fmt.Errorf("stat %s: %w", configPath, statErr)
+	case !force:
+		return false, "", nil
+	}
+
+	stamp := time.Now().Format("20060102-150405")
+	backup = configPath + ".bak." + stamp
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return false, "", fmt.Errorf("read %s: %w", configPath, err)
+	}
+	if err := os.WriteFile(backup, data, 0644); err != nil {
+		return false, "", fmt.Errorf("backup: %w", err)
+	}
+	if err := SaveConfig(configPath, cfg); err != nil {
+		return false, backup, fmt.Errorf("save config: %w", err)
+	}
+	return true, backup, nil
+}
+
 // Uninstall remove a key statusLine do settings.json (preservando o resto).
 // Faz backup. Retorna true se removeu, false se não tinha.
 func Uninstall(settingsPath string) (removed bool, backup string, err error) {

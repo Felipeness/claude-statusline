@@ -9,7 +9,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config é a config persistente em ~/.claude-history/statusline.toml.
+// Config é a config persistente em ~/.claude-statusline/config.toml.
 // Estrutura inspirada em ccstatusline (lines + components) com TOML
 // (tipado e legível) ao invés de JSON.
 type Config struct {
@@ -58,7 +58,7 @@ func (h HistoryConfig) TimeoutDuration() time.Duration {
 	return d
 }
 
-// DefaultConfig é o ponto de partida quando ~/.claude-history/statusline.toml
+// DefaultConfig é o ponto de partida quando ~/.claude-statusline/config.toml
 // não existe. 2 linhas, 7 components, tema graphite, style plain.
 func DefaultConfig() *Config {
 	return &Config{

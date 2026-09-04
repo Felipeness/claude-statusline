@@ -1,8 +1,8 @@
 // Package server é o HTTP backend mínimo do Studio web. 5 endpoints:
 //
-//	GET  /api/components — catálogo dos 16 components
+//	GET  /api/components — catálogo dos 25 components
 //	GET  /api/themes — 5 themes + 3 styles com cores RGB
-//	GET  /api/presets — 3 presets canônicos
+//	GET  /api/presets — 4 presets canônicos
 //	GET  /api/config — config atual (TOML → JSON)
 //	POST /api/config — salva config nova
 //	POST /api/render — recebe {config, mock_input, mock_history} → {ansi, html}

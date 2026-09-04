@@ -441,6 +441,8 @@ function presetDescription(name: string): string {
       return '2 linhas com cost_today/month, ticket, cluster, lines, time'
     case 'powerline':
       return 'estilo powerline com graphite e segmentos coloridos'
+    case 'gateway':
+      return 'Budget do LLM Gateway em R$, tokens do período, reset e contadores da sessão (2 linhas)'
     default:
       return name
   }
@@ -506,21 +508,22 @@ function HelpSection() {
             burn rate, ticket, cluster, etc.
           </p>
           <p>
-            <strong className="text-[var(--color-fg)]">Como o claude-history se pluga.</strong>{' '}
+            <strong className="text-[var(--color-fg)]">Como o claude-statusline se pluga.</strong>{' '}
             O Claude Code chama um binário a cada turno passando JSON via stdin. O nosso{' '}
-            <code>statusline-render</code> lê esse JSON, consulta o daemon (cost histórico, p90,
-            cluster), aplica seu config TOML e devolve uma linha ANSI colorida.
+            <code>claude-statusline render</code> lê esse JSON, consulta o daemon (cost histórico,
+            p90, cluster), aplica seu config TOML e devolve uma linha ANSI colorida.
           </p>
           <p>
             <strong className="text-[var(--color-fg)]">O que você faz aqui.</strong> Compõe a
             linha arrastando components, escolhe theme/style, ajusta thresholds (warn/critical) e
             simula cenários no Mock Data pra ver como ficaria. Salvar grava em{' '}
-            <code>~/.claude-history/statusline.toml</code>.
+            <code>~/.claude-statusline/config.toml</code>.
           </p>
           <p>
             <strong className="text-[var(--color-fg)]">Pra plugar de verdade no Claude Code:</strong>{' '}
-            <code>claude-history statusline-install --preset compact</code> (ou max/powerline) →
-            reiniciar o Claude Code (statusLine só carrega no boot).
+            <code>claude-statusline install --preset gateway</code> (ou compact/max/powerline) →
+            reiniciar o Claude Code (statusLine só carrega no boot). O preset gateway também
+            instala o slash command <code>/budget</code>.
           </p>
           <p>
             <strong className="text-[var(--color-fg)]">Engine único.</strong> Render é em Go.

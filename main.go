@@ -107,6 +107,7 @@ func cmdRender() {
 
 func cmdInstall(args []string) {
 	preset := "compact"
+	presetSet := false
 	refresh := -1 // -1 = flag ausente, distingue de "--refresh 0" explícito
 	force := false
 	uninstall := false
@@ -115,6 +116,7 @@ func cmdInstall(args []string) {
 		case "--preset":
 			if i+1 < len(args) {
 				preset = args[i+1]
+				presetSet = true
 				i++
 			}
 		case "--refresh":
@@ -176,16 +178,30 @@ func cmdInstall(args []string) {
 	if refresh == -1 {
 		refresh = 0 // flag ausente e preset não é gateway: event-driven, sem interval
 	}
-	if _, err := os.Stat(configPath()); errors.Is(err, os.ErrNotExist) {
-		cfg := statusline.Presets[preset]
-		if cfg == nil {
-			cfg = statusline.DefaultConfig()
-		}
-		if err := statusline.SaveConfig(configPath(), cfg); err != nil {
+	cfg := statusline.Presets[preset]
+	if cfg == nil {
+		cfg = statusline.DefaultConfig()
+	}
+	_, statErr := os.Stat(configPath())
+	configAbsent := errors.Is(statErr, os.ErrNotExist)
+	switch {
+	case configAbsent:
+		if _, _, err := statusline.ApplyPreset(configPath(), cfg, force); err != nil {
 			fatal(err)
 		}
 		fmt.Printf("✓ config criado em %s (preset: %s)\n", configPath(), preset)
-	} else {
+	case presetSet && force:
+		_, backup, err := statusline.ApplyPreset(configPath(), cfg, force)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Printf("✓ config sobrescrito com preset %s (backup: %s)\n", preset, backup)
+	case presetSet:
+		fmt.Printf(
+			"⚠ config já existe em %s — preset %s não aplicado; use --force pra sobrescrever (faz backup)\n",
+			configPath(), preset,
+		)
+	default:
 		fmt.Printf("✓ config já existe em %s — preservado\n", configPath())
 	}
 	res, err := statusline.Install(statusline.InstallOptions{
