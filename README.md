@@ -13,7 +13,7 @@
 [![Runtime Deps](https://img.shields.io/badge/Runtime%20Deps-0-brightgreen?style=flat-square)](#stack-)
 [![Studio](https://img.shields.io/badge/Studio-embedded-58a6ff?style=flat-square)](#studio-)
 
-**16 components** &bull; **5 themes** &bull; **3 styles** &bull; **15 combinações** &bull; **0 deps em runtime**
+**25 components** &bull; **5 themes** &bull; **3 styles** &bull; **4 presets** &bull; **0 deps em runtime**
 
 *Inspirado no [Powerline Studio](https://powerline.owloops.com/) — portado pra Claude Code.*
 
@@ -29,7 +29,7 @@
 
 **Solução.** Um binário Go único que faz duas coisas: renderiza o statusline pro Claude Code via stdin (rápido, ~30ms) e abre um Studio web (`claude-statusline studio`) onde você arrasta components, escolhe tema, ajusta thresholds e vê o preview live com dados mockados ajustáveis em sliders.
 
-**Prova.** 16 components · 5 themes · 3 styles = 240 combinações configuráveis sem editar TOML. Engine único em Go (mesmo código no terminal e na preview web — zero risco de divergência). Binário 11MB, zero deps em runtime.
+**Prova.** 25 components · 5 themes · 3 styles = 375 combinações configuráveis sem editar TOML, mais 4 presets prontos (compact, max, powerline, gateway). Engine único em Go (mesmo código no terminal e na preview web — zero risco de divergência). Binário 11MB, zero deps em runtime.
 
 ---
 
@@ -38,15 +38,17 @@
 1. [Não é só "um statusline com cara bonita"](#-não-é-só-um-statusline-com-cara-bonita)
 2. [Como funciona](#-como-funciona)
 3. [Components disponíveis](#-components-disponíveis)
-4. [Studio](#-studio)
-5. [Arquitetura](#-arquitetura)
-6. [Estrutura do projeto](#-estrutura-do-projeto)
-7. [Quick Start](#-quick-start)
-8. [Severidade & thresholds](#-severidade--thresholds)
-9. [Daemon opcional de histórico](#-daemon-opcional-de-histórico)
-10. [Stack](#stack-)
-11. [Privacidade](#-privacidade)
-12. [Licença](#-licença)
+4. [Budget do LLM Gateway (Superlógica)](#-budget-do-llm-gateway-superlógica)
+5. [Studio](#-studio)
+6. [Arquitetura](#-arquitetura)
+7. [Estrutura do projeto](#-estrutura-do-projeto)
+8. [Instalação pro time](#-instalação-pro-time)
+9. [Quick Start (build local)](#-quick-start-build-local)
+10. [Severidade & thresholds](#-severidade--thresholds)
+11. [Daemon opcional de histórico](#-daemon-opcional-de-histórico)
+12. [Stack](#stack-)
+13. [Privacidade](#-privacidade)
+14. [Licença](#-licença)
 
 ---
 
@@ -109,7 +111,7 @@ A cada turno do Claude Code, o `render` recebe um JSON com `cwd`, `model`, `cost
 ## ~ Components disponíveis
 
 <details>
-<summary><strong>16 components organizados em 7 categorias</strong></summary>
+<summary><strong>25 components organizados em 9 categorias</strong></summary>
 
 | Component | Categoria | Mostra |
 |---|---|---|
@@ -129,10 +131,45 @@ A cada turno do Claude Code, o `render` recebe um JSON com `cwd`, `model`, `cost
 | **`session_block`** | limits | **Bar grande + reset destacado pro bloco de 5h:** `session ▓▓▓▓▓░░░ 73% → 2h12m` |
 | `cluster` | history | Label de cluster AI da session (precisa daemon) |
 | `time` | system | `hh:mm` |
+| `mcp_status` | system | Placeholder — component registrado mas ainda sem integração com MCP servers, sem saída visível hoje |
+| `auth_mode` | system | Chip `[Gateway]` / `[OAuth]` / `[API key]` indicando a autenticação ativa da sessão |
+| `gateway_budget` | gateway | `🟢 R$ 73,53 / R$ 520,00 (14%)` — consumo no LLM Gateway, 🟡 ≥70%, 🔴 ≥90%, `🚫 BLOQUEADO` quando excedido (requer gateway) |
+| `gateway_tokens` | gateway | `9.7M tokens` processados no período (requer gateway) |
+| `gateway_reset` | gateway | `reset 01/10`, dia em que o budget zera (requer gateway) |
+| `tokens_in` / `tokens_out` / `tokens_total` | context | `In: 3` `Out: 436` `Total: 439` da sessão atual |
+| `tokens_cache` | context | `Cache: 38.6k` tokens lidos do prompt cache (some quando 0) |
 
-`session_block` foi pensado pra quem usa Claude Pro/Max — destaca o bloco de 5 horas como elemento principal da linha (bar maior, prefixo "session" em vez de "5h", arrow `→` no countdown).
+`session_block` foi pensado pra quem usa Claude Pro/Max — destaca o bloco de 5 horas como elemento principal da linha (bar maior, prefixo "session" em vez de "5h", arrow `→` no countdown). Os components `gateway_*` e `auth_mode` são a base do preset `gateway`, detalhado a seguir.
 
 </details>
+
+---
+
+## ~ Budget do LLM Gateway (Superlógica)
+
+Quem usa o Claude Code pelo [LLM Gateway da Superlógica](https://superlogica.atlassian.net/wiki/spaces/SPL/pages/4240015369) tem budget mensal em reais. O `claude-statusline` lê o mesmo `GET /v1/usage` que o gateway expõe, com o token do Auth0 que o Claude Code já guarda em `~/.claude/auth0-token-cache.json`, e mostra na linha:
+
+```
+~/projects/app  main  Sonnet 4.6 │ 🟢 R$ 73,53 / R$ 520,00 (14%) │ 9.7M tokens │ reset 01/10
+▓▓▓░░░ 42% · In: 3 · Out: 436 · Total: 439 · Cache: 38.6k
+```
+
+- **Detecção automática**: basta `ANTHROPIC_BASE_URL` no env do Claude Code e o login do gateway feito. Sem isso os components somem e nada quebra. O chip `auth_mode` mostra `[Gateway]`, `[OAuth]` ou `[API key]` conforme o que foi detectado.
+- **Cache de 60s** em `~/.cache/claude-statusline-gateway.json` (só consumo, nunca o token). Se o gateway não responder, usa o último valor por até 1h (cache negativo: uma falha só bate HTTP de novo depois do TTL).
+- **`/budget` dentro do Claude Code**: o `install` grava `~/.claude/commands/budget.md`, que roda `claude-statusline budget --json` e explica gasto, teto, reset, escopo (individual ou pool da licença) e bloqueio.
+- **No terminal**: `claude-statusline budget` (texto) ou `claude-statusline budget --json`.
+
+Config opcional em `~/.claude-statusline/config.toml`:
+
+```toml
+[gateway]
+enabled = true       # false desliga o probe
+base_url = ""        # vazio = ANTHROPIC_BASE_URL
+token_file = ""      # vazio = ~/.claude/auth0-token-cache.json
+ttl = "60s"
+stale_ttl = "1h"
+timeout = "4s"
+```
 
 ---
 
@@ -149,8 +186,8 @@ claude-statusline studio    # abre http://localhost:5556 no navegador
 | **Lines** | Drag-and-drop horizontal de chips, multi-linha com separator customizável |
 | **Threshold editor** | Click no `⚙` de qualquer chip com `has_warn_at` pra ajustar warn/critical |
 | **Mock data** | 13 sliders pra simular cenários (context %, cost, burn rate, rate 5h/7d, etc) |
-| **Reset preset** | compact / max / powerline |
-| **Catálogo** | Lista todos 16 components com badge "requer daemon" pros que dependem de histórico |
+| **Reset preset** | compact / max / powerline / gateway |
+| **Catálogo** | Lista todos 25 components com badge "requer daemon" pros que dependem de histórico e "requer gateway" pros que dependem do LLM Gateway |
 
 Ao salvar, persiste em `~/.claude-statusline/config.toml`. Reinicia o Claude Code pra aplicar (statusLine só carrega no boot).
 
@@ -163,7 +200,9 @@ flowchart LR
     subgraph engine ["internal/statusline (engine puro)"]
         I[input.go<br/>tipos do stdin]
         T[theme.go<br/>5 themes embedded]
-        C[components.go<br/>16 components]
+        C[components*.go<br/>25 components]
+        GW[gateway.go + gateway_probe.go<br/>probe LLM Gateway + cache 60s]
+        BUD[budget_report.go + budget_command.go<br/>relatório + slash command /budget]
         R[render.go<br/>plain/powerline/capsule]
         H[html.go<br/>ANSI → HTML]
     end
@@ -173,6 +212,8 @@ flowchart LR
         INS[install]
         PRE[preview]
         STU[studio]
+        BGT[budget]
+        VER[version]
     end
 
     subgraph srv ["internal/server"]
@@ -184,11 +225,16 @@ flowchart LR
     end
 
     REN --> R
+    REN --> GW
+    GW --> C
     PRE --> R
     STU --> EP
     EP --> R
     EP --> H
     INS --> CONF[settings.json merge]
+    INS --> BUD
+    BGT --> BUD
+    BUD --> GW
     APP -.fetch.-> EP
 
     style engine fill:#1a1a2e,stroke:#e94560,color:#eee
@@ -197,7 +243,7 @@ flowchart LR
     style web fill:#1a1a2e,stroke:#0f3460,color:#eee
 ```
 
-**Single source of truth**: o engine de render mora 100% em Go (`internal/statusline/`). O Studio web não duplica nada — só envia `{config, mock_input, mock_history}` via POST e exibe o HTML pronto que o Go retorna (conversão ANSI→HTML também é em Go, em `html.go`). O que aparece na preview é exatamente o que o Claude Code vê.
+**Single source of truth**: o engine de render mora 100% em Go (`internal/statusline/`). O Studio web não duplica nada — só envia `{config, mock_input, mock_history}` via POST e exibe o HTML pronto que o Go retorna (conversão ANSI→HTML também é em Go, em `html.go`). O que aparece na preview é exatamente o que o Claude Code vê. `format.go` centraliza a formatação de `R$` e tokens abreviados (`9.7M`, `38.6k`), usada tanto pelos components de gateway quanto pelos de tokens de sessão.
 
 ---
 
@@ -205,20 +251,33 @@ flowchart LR
 
 ```
 claude-statusline/
-├── main.go                       # 4 subcomandos CLI
+├── main.go                       # 6 subcomandos CLI
 ├── embed.go                      # //go:embed all:web/dist
+├── install.sh                    # instalador macOS/Linux/WSL/Git Bash (release)
+├── install.ps1                   # instalador Windows PowerShell (release)
+├── .github/workflows/
+│   ├── ci.yml                    # gofmt, go vet, go test, go build em cada push/PR
+│   └── release.yml               # cross-compile 5 binários + SHA256SUMS na tag v*
 ├── internal/
 │   ├── statusline/
 │   │   ├── input.go              # tipos do JSON stdin
 │   │   ├── config.go             # TOML config + defaults + load/save
 │   │   ├── theme.go              # 5 themes embedded
 │   │   ├── ansi.go               # truecolor helpers
-│   │   ├── components.go         # 16 components com metadata
+│   │   ├── format.go             # formata R$ e tokens abreviados (pt-BR)
+│   │   ├── components.go         # components com metadata
+│   │   ├── components_gateway.go # gateway_budget / gateway_tokens / gateway_reset
+│   │   ├── components_tokens.go  # tokens_in / tokens_out / tokens_total / tokens_cache
+│   │   ├── gateway.go            # parse do GET /v1/usage do LLM Gateway
+│   │   ├── gateway_probe.go      # probe HTTP com cache 60s + cache negativo
+│   │   ├── budget_report.go      # relatório normalizado (texto + JSON)
+│   │   ├── budget_command.go     # gera ~/.claude/commands/budget.md
 │   │   ├── render.go             # plain/powerline/capsule renderers
 │   │   ├── html.go               # ANSI → HTML pra Studio
 │   │   ├── history.go            # fetch opcional de daemon
-│   │   ├── presets.go            # compact/max/powerline
-│   │   └── install.go            # merge atômico em settings.json
+│   │   ├── presets.go            # compact/max/powerline/gateway
+│   │   ├── install.go            # merge atômico em settings.json
+│   │   └── *_test.go             # testes table-driven por arquivo
 │   └── server/
 │       └── server.go             # 5 endpoints powering Studio
 └── web/                          # Vite + React 19 + Tailwind v4
@@ -231,7 +290,27 @@ claude-statusline/
 
 ---
 
-## ~ Quick Start
+## ~ Instalação pro time
+
+Sem Go, sem Bun, sem jq. Baixa o binário da release e pluga:
+
+```bash
+# macOS / Linux / WSL / Git Bash
+curl -fsSL https://raw.githubusercontent.com/Felipeness/claude-statusline/main/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Felipeness/claude-statusline/main/install.ps1 | iex
+```
+
+O script baixa `claude-statusline_<os>_<arch>` da [última release](https://github.com/Felipeness/claude-statusline/releases/latest), coloca em `~/.local/bin` (`~/bin` no Windows) e roda `claude-statusline install --preset gateway --force` (o `--force` substitui um statusline anterior, com backup do `settings.json`). Depois é só reiniciar o Claude Code.
+
+Prefere manual? Baixe o asset da release, extraia e rode `claude-statusline install --preset gateway`. Pra outro preset: `... | sh -s -- --preset compact`.
+
+---
+
+## ~ Quick Start (build local)
 
 **Pré-requisitos**: Go 1.26+, [Bun](https://bun.sh) (build do frontend, 1x).
 
@@ -245,6 +324,7 @@ go build -o ~/.local/bin/claude-statusline .
 # 2. Plug no Claude Code (faz backup do settings.json)
 claude-statusline install --preset compact
 # se voce ja tem outro statusline instalado: --force
+claude-statusline install --preset gateway   # ou compact/max/powerline
 
 # 3. Reinicia o Claude Code (statusLine so carrega no boot)
 ```
@@ -279,6 +359,7 @@ Components com `has_warn_at: true` mudam de cor baseado no valor:
 | `rate_5h` | 70 | 90 | % do bloco de 5h |
 | `rate_7d` | 70 | 90 | % do bloco semanal |
 | `session_block` | 70 | 90 | % do bloco de 5h |
+| `gateway_budget` | 70 | 90 | % do budget mensal no LLM Gateway (requer gateway) |
 
 </details>
 
@@ -311,13 +392,13 @@ Build do frontend é embarcado via `//go:embed all:web/dist` — distribuído co
 
 ## ~ Privacidade
 
-Roda 100% local. O Studio bind padrão `127.0.0.1:5556`. O `render` lê stdin do Claude Code, opcionalmente faz GET num daemon local, devolve ANSI. Nada sai da máquina.
+Roda local por padrão. O Studio bind padrão `127.0.0.1:5556`. O `render` lê stdin do Claude Code, opcionalmente faz GET num daemon local, devolve ANSI. Com o LLM Gateway configurado, o único tráfego que sai da máquina é o `GET /v1/usage` pro gateway da própria empresa (mesmo host do `ANTHROPIC_BASE_URL`), autenticado com o token do Auth0 que o Claude Code já usa — o cache local guarda só o consumo, nunca o token.
 
 ---
 
 ## ~ Licença
 
-A definir — projeto pessoal, código aberto pra leitura/aprendizado.
+[MIT](LICENSE) — projeto pessoal, código aberto pra leitura, uso e modificação.
 
 ---
 
