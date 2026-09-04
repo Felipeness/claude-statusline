@@ -31,6 +31,8 @@ func TestGatewayBudgetRender(t *testing.T) {
 			wantText: "🔴 R$ 468,00 / R$ 520,00 (90%)", wantFG: theme.Status.Crit},
 		{name: "blocked", usage: &GatewayUsage{SpentBRLMicro: 520_000_000, LimitBRLMicro: 520_000_000, Exceeded: true}, opts: opts,
 			wantText: "🚫 BLOQUEADO R$ 520,00 / R$ 520,00", wantFG: theme.Status.Crit, wantBold: true},
+		{name: "blocked without limit shows spent only", usage: &GatewayUsage{SpentBRLMicro: 73_530_000, Exceeded: true}, opts: opts,
+			wantText: "🚫 BLOQUEADO R$ 73,53", wantFG: theme.Status.Crit, wantBold: true},
 		{name: "no limit shows spent only", usage: &GatewayUsage{SpentBRLMicro: 73_530_000}, opts: opts,
 			wantText: "🟢 R$ 73,53", wantFG: theme.SegOf("gateway_budget").FG},
 		{name: "default thresholds when opts empty", usage: &GatewayUsage{SpentBRLMicro: 468_000_000, LimitBRLMicro: 520_000_000},
