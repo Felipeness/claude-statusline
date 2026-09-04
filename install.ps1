@@ -12,10 +12,13 @@ $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("claude-statusline-" + [guid
 New-Item -ItemType Directory -Force -Path $tmp, $binDir | Out-Null
 
 Write-Host "baixando $url"
-Invoke-WebRequest -Uri $url -OutFile (Join-Path $tmp "pkg.zip")
-Expand-Archive -Path (Join-Path $tmp "pkg.zip") -DestinationPath $tmp -Force
-Copy-Item (Join-Path $tmp "claude-statusline.exe") (Join-Path $binDir "claude-statusline.exe") -Force
-Remove-Item -Recurse -Force $tmp
+try {
+    Invoke-WebRequest -Uri $url -OutFile (Join-Path $tmp "pkg.zip") -UseBasicParsing
+    Expand-Archive -Path (Join-Path $tmp "pkg.zip") -DestinationPath $tmp -Force
+    Copy-Item (Join-Path $tmp "claude-statusline.exe") (Join-Path $binDir "claude-statusline.exe") -Force
+} finally {
+    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+}
 
 $exe = Join-Path $binDir "claude-statusline.exe"
 Write-Host "instalado em $exe"

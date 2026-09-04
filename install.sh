@@ -8,7 +8,7 @@ REPO="Felipeness/claude-statusline"
 PRESET="gateway"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --preset) PRESET="$2"; shift 2 ;;
+    --preset) [ $# -ge 2 ] || { echo "--preset precisa de um valor" >&2; exit 1; }; PRESET="$2"; shift 2 ;;
     *) echo "opção desconhecida: $1" >&2; exit 1 ;;
   esac
 done
@@ -38,7 +38,18 @@ trap 'rm -rf "$tmp"' EXIT
 
 echo "baixando $url"
 curl -fsSL "$url" -o "$tmp/pkg.$ext"
-if [ "$ext" = zip ]; then unzip -q "$tmp/pkg.zip" -d "$tmp"; else tar -xzf "$tmp/pkg.tar.gz" -C "$tmp"; fi
+if [ "$ext" = zip ]; then
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q "$tmp/pkg.zip" -d "$tmp"
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -Command "Expand-Archive -LiteralPath '$(cygpath -w "$tmp/pkg.zip")' -DestinationPath '$(cygpath -w "$tmp")' -Force"
+  else
+    echo "sem unzip nem powershell.exe pra extrair — roda o install.ps1 em vez deste script" >&2
+    exit 1
+  fi
+else
+  tar -xzf "$tmp/pkg.tar.gz" -C "$tmp"
+fi
 mkdir -p "$bin_dir"
 cp "$tmp/$bin" "$bin_dir/$bin"
 chmod 755 "$bin_dir/$bin"
