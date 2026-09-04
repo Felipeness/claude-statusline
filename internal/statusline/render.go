@@ -72,9 +72,10 @@ func RenderWith(in *Input, cfg *Config, hist *HistoryData) string {
 // terminalWidth tenta descobrir colunas. O statusline roda como subprocess
 // do Claude Code com stdin/stdout/stderr pipados (sem TTY) e normalmente
 // sem env COLUMNS, entao a ordem e:
-//   1. env COLUMNS (Claude Code as vezes propaga)
-//   2. controlling terminal direto (/dev/tty no Unix, CONIN$ no Windows)
-//   3. fallback nos fds stderr/stdin
+//  1. env COLUMNS (Claude Code as vezes propaga)
+//  2. controlling terminal direto (/dev/tty no Unix, CONIN$ no Windows)
+//  3. fallback nos fds stderr/stdin
+//
 // Devolve 0 quando nada funciona (= sem truncate, comportamento antigo).
 func terminalWidth() int {
 	if v := os.Getenv("COLUMNS"); v != "" {
@@ -136,7 +137,8 @@ func renderPlain(segs []Segment, sep string, theme *Theme) string {
 
 // renderPowerline — segmentos em pílulas com BG, transição via arrow glyph.
 // Padrão herdado do Owloops/claude-powerline:
-//   reset → next.BG → prev.BG-as-FG → arrow → next segment
+//
+//	reset → next.BG → prev.BG-as-FG → arrow → next segment
 const powerlineArrow = "" //
 
 func renderPowerline(segs []Segment) string {

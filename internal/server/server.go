@@ -1,10 +1,11 @@
 // Package server é o HTTP backend mínimo do Studio web. 5 endpoints:
-//   GET  /api/components — catálogo dos 16 components
-//   GET  /api/themes — 5 themes + 3 styles com cores RGB
-//   GET  /api/presets — 3 presets canônicos
-//   GET  /api/config — config atual (TOML → JSON)
-//   POST /api/config — salva config nova
-//   POST /api/render — recebe {config, mock_input, mock_history} → {ansi, html}
+//
+//	GET  /api/components — catálogo dos 16 components
+//	GET  /api/themes — 5 themes + 3 styles com cores RGB
+//	GET  /api/presets — 3 presets canônicos
+//	GET  /api/config — config atual (TOML → JSON)
+//	POST /api/config — salva config nova
+//	POST /api/render — recebe {config, mock_input, mock_history} → {ansi, html}
 package server
 
 import (
@@ -80,7 +81,7 @@ func (s *Server) handleThemes(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		o := themeOut{
-			Name:    t.Name,
+			Name: t.Name,
 			Default: segOut{
 				BG: colorOut{t.Default.BG.R, t.Default.BG.G, t.Default.BG.B},
 				FG: colorOut{t.Default.FG.R, t.Default.FG.G, t.Default.FG.B},

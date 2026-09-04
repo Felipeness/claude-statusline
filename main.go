@@ -1,10 +1,11 @@
 // claude-statusline — visual editor + render engine pra Claude Code statusLine.
 //
 // CLI:
-//   claude-statusline render             # consumido pelo Claude Code via stdin
-//   claude-statusline install            # configura ~/.claude/settings.json
-//   claude-statusline preview [--all]    # vê todos themes × styles
-//   claude-statusline studio [--port N]  # abre Web UI Studio
+//
+//	claude-statusline render             # consumido pelo Claude Code via stdin
+//	claude-statusline install            # configura ~/.claude/settings.json
+//	claude-statusline preview [--all]    # vê todos themes × styles
+//	claude-statusline studio [--port N]  # abre Web UI Studio
 package main
 
 import (

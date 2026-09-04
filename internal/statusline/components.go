@@ -39,35 +39,35 @@ type Component interface {
 
 // ComponentMeta descreve um component pra UI (catálogo do Studio).
 type ComponentMeta struct {
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Category    string `json:"category"` // path|git|model|context|cost|limits|history|system|gateway
-	Description string `json:"description"`
-	NeedsHist   bool   `json:"needs_history"` // true → só funciona com daemon up
-	HasWarnAt   bool   `json:"has_warn_at"`   // true → aceita warn_at/critical_at
-	NeedsGateway bool  `json:"needs_gateway"` // true → só funciona com LLM Gateway configurado
+	Name         string `json:"name"`
+	Label        string `json:"label"`
+	Category     string `json:"category"` // path|git|model|context|cost|limits|history|system|gateway
+	Description  string `json:"description"`
+	NeedsHist    bool   `json:"needs_history"` // true → só funciona com daemon up
+	HasWarnAt    bool   `json:"has_warn_at"`   // true → aceita warn_at/critical_at
+	NeedsGateway bool   `json:"needs_gateway"` // true → só funciona com LLM Gateway configurado
 }
 
 // componentMetas catalogo manual — fonte de verdade pra UI.
 var componentMetas = map[string]ComponentMeta{
-	"cwd":           {Name: "cwd", Label: "Pasta atual", Category: "path", Description: "Caminho da pasta encurtado com ~"},
-	"git":           {Name: "git", Label: "Git branch", Category: "git", Description: "Branch + dirty marker (✱) + ahead/behind"},
-	"model":         {Name: "model", Label: "Modelo", Category: "model", Description: "Display name do modelo atual"},
-	"context_pct":   {Name: "context_pct", Label: "Context %", Category: "context", Description: "Bar + percentual com cor por severity", HasWarnAt: true},
-	"cost_session":  {Name: "cost_session", Label: "Cost session", Category: "cost", Description: "$ atual com badge vs p90 (se daemon up)", HasWarnAt: true},
-	"burn_rate":     {Name: "burn_rate", Label: "Burn rate", Category: "cost", Description: "Tokens/min — requer daemon", NeedsHist: true, HasWarnAt: true},
-	"cost_today":    {Name: "cost_today", Label: "Cost hoje", Category: "cost", Description: "Soma do dia inteiro — requer daemon", NeedsHist: true},
-	"cost_month":    {Name: "cost_month", Label: "Cost mês", Category: "cost", Description: "Acumulado + projeção — requer daemon", NeedsHist: true},
-	"rate_5h":       {Name: "rate_5h", Label: "Rate 5h", Category: "limits", Description: "Bar + % do bloco de 5h + countdown (compact)", HasWarnAt: true},
-	"rate_7d":       {Name: "rate_7d", Label: "Rate 7d", Category: "limits", Description: "Bar + % do bloco semanal + countdown", HasWarnAt: true},
-	"session_block": {Name: "session_block", Label: "Session block", Category: "limits", Description: "Bar grande + reset countdown destacado pro bloco de 5h", HasWarnAt: true},
-	"ticket":        {Name: "ticket", Label: "Ticket", Category: "git", Description: "Auto-extrai TICKET-NNNN da branch"},
-	"cluster":       {Name: "cluster", Label: "Cluster AI", Category: "history", Description: "Label do cluster AI desse projeto — requer daemon", NeedsHist: true},
-	"vim_mode":      {Name: "vim_mode", Label: "Vim mode", Category: "system", Description: "NORMAL/INSERT (se vim ativado)"},
-	"lines_changed": {Name: "lines_changed", Label: "Linhas +/-", Category: "git", Description: "Linhas adicionadas/removidas na session"},
-	"time":          {Name: "time", Label: "Hora", Category: "system", Description: "hh:mm atual"},
-	"mcp_status":    {Name: "mcp_status", Label: "MCP status", Category: "system", Description: "Status dos MCP servers (placeholder)"},
-	"auth_mode":     {Name: "auth_mode", Label: "Modo auth", Category: "system", Description: "Chip [Gateway]/[OAuth]/[API key] indicando a auth ativa da sessão", HasWarnAt: true},
+	"cwd":            {Name: "cwd", Label: "Pasta atual", Category: "path", Description: "Caminho da pasta encurtado com ~"},
+	"git":            {Name: "git", Label: "Git branch", Category: "git", Description: "Branch + dirty marker (✱) + ahead/behind"},
+	"model":          {Name: "model", Label: "Modelo", Category: "model", Description: "Display name do modelo atual"},
+	"context_pct":    {Name: "context_pct", Label: "Context %", Category: "context", Description: "Bar + percentual com cor por severity", HasWarnAt: true},
+	"cost_session":   {Name: "cost_session", Label: "Cost session", Category: "cost", Description: "$ atual com badge vs p90 (se daemon up)", HasWarnAt: true},
+	"burn_rate":      {Name: "burn_rate", Label: "Burn rate", Category: "cost", Description: "Tokens/min — requer daemon", NeedsHist: true, HasWarnAt: true},
+	"cost_today":     {Name: "cost_today", Label: "Cost hoje", Category: "cost", Description: "Soma do dia inteiro — requer daemon", NeedsHist: true},
+	"cost_month":     {Name: "cost_month", Label: "Cost mês", Category: "cost", Description: "Acumulado + projeção — requer daemon", NeedsHist: true},
+	"rate_5h":        {Name: "rate_5h", Label: "Rate 5h", Category: "limits", Description: "Bar + % do bloco de 5h + countdown (compact)", HasWarnAt: true},
+	"rate_7d":        {Name: "rate_7d", Label: "Rate 7d", Category: "limits", Description: "Bar + % do bloco semanal + countdown", HasWarnAt: true},
+	"session_block":  {Name: "session_block", Label: "Session block", Category: "limits", Description: "Bar grande + reset countdown destacado pro bloco de 5h", HasWarnAt: true},
+	"ticket":         {Name: "ticket", Label: "Ticket", Category: "git", Description: "Auto-extrai TICKET-NNNN da branch"},
+	"cluster":        {Name: "cluster", Label: "Cluster AI", Category: "history", Description: "Label do cluster AI desse projeto — requer daemon", NeedsHist: true},
+	"vim_mode":       {Name: "vim_mode", Label: "Vim mode", Category: "system", Description: "NORMAL/INSERT (se vim ativado)"},
+	"lines_changed":  {Name: "lines_changed", Label: "Linhas +/-", Category: "git", Description: "Linhas adicionadas/removidas na session"},
+	"time":           {Name: "time", Label: "Hora", Category: "system", Description: "hh:mm atual"},
+	"mcp_status":     {Name: "mcp_status", Label: "MCP status", Category: "system", Description: "Status dos MCP servers (placeholder)"},
+	"auth_mode":      {Name: "auth_mode", Label: "Modo auth", Category: "system", Description: "Chip [Gateway]/[OAuth]/[API key] indicando a auth ativa da sessão", HasWarnAt: true},
 	"gateway_budget": {Name: "gateway_budget", Label: "Budget gateway", Category: "gateway", Description: "R$ gasto / R$ limite (%) no LLM Gateway, 🚫 quando bloqueado — requer gateway", NeedsGateway: true, HasWarnAt: true},
 	"gateway_tokens": {Name: "gateway_tokens", Label: "Tokens período", Category: "gateway", Description: "Tokens processados no período atual (todas as sessões) — requer gateway", NeedsGateway: true},
 	"gateway_reset":  {Name: "gateway_reset", Label: "Reset budget", Category: "gateway", Description: "Data em que o budget zera (reset dd/mm) — requer gateway", NeedsGateway: true},
@@ -483,6 +483,7 @@ func (rate7dComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
 // (a "sessão" do Claude Code do ponto de vista do limite Pro/Max). Combina:
 //   - bar visual: ▓▓▓▓░░ 73%
 //   - countdown grande: 2h12m → reset
+//
 // Usa as mesmas thresholds do rate_5h. Útil pra quem quer destacar o
 // bloco como elemento principal — o rate_5h normal é mais compacto.
 type sessionBlockComp struct{}

@@ -13,9 +13,9 @@ import (
 // Estrutura inspirada em ccstatusline (lines + components) com TOML
 // (tipado e legível) ao invés de JSON.
 type Config struct {
-	Theme    string `toml:"theme" json:"theme"`         // graphite|nord|dracula|sakura|mono
-	Style    string `toml:"style" json:"style"`         // plain|powerline|capsule
-	Charset  string `toml:"charset" json:"charset"`     // unicode|ascii
+	Theme    string `toml:"theme" json:"theme"`     // graphite|nord|dracula|sakura|mono
+	Style    string `toml:"style" json:"style"`     // plain|powerline|capsule
+	Charset  string `toml:"charset" json:"charset"` // unicode|ascii
 	AutoWrap bool   `toml:"auto_wrap" json:"auto_wrap"`
 
 	Lines      []Line                   `toml:"lines" json:"lines"`
