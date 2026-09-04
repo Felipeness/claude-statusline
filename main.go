@@ -30,6 +30,8 @@ USAGE:
                   [--refresh N] [--force]      [--uninstall remove]
   claude-statusline preview [--theme] [--style] [--all]
   claude-statusline studio [--port 5556]       abre Web UI Studio em http://localhost:5556
+  claude-statusline budget [--json]            consumo no LLM Gateway da empresa (texto ou JSON pro /budget)
+  claude-statusline version                    versão do binário
 
 PRESETS: compact (default), max, powerline, gateway
 THEMES:  graphite (default), nord, dracula, sakura, mono
@@ -55,6 +57,8 @@ func main() {
 		cmdPreview(os.Args[2:])
 	case "studio":
 		cmdStudio(os.Args[2:])
+	case "budget":
+		cmdBudget(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -177,6 +181,38 @@ func cmdInstall(args []string) {
 	}
 	fmt.Printf("✓ statusLine instalado em %s\n  command: %s\n", settingsPath, cmd)
 	fmt.Println("\nPróximo passo: reinicia o Claude Code (statusLine só carrega no boot).")
+}
+
+// cmdBudget imprime o consumo no gateway. Sempre exit 0: o /budget do
+// Claude Code precisa do texto (inclusive do erro) pra explicar ao usuário.
+func cmdBudget(args []string) {
+	asJSON := len(args) > 0 && args[0] == "--json"
+	cfg, err := statusline.LoadConfig(configPath())
+	if err != nil {
+		printBudgetError(asJSON, err)
+		return
+	}
+	res, err := statusline.ProbeGatewayDetailed(cfg.Gateway)
+	if err != nil {
+		printBudgetError(asJSON, err)
+		return
+	}
+	opts := cfg.Components["gateway_budget"]
+	report := statusline.NewBudgetReport(res, opts.WarnAt, opts.CriticalAt)
+	if asJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(report)
+		return
+	}
+	fmt.Print(report.Text())
+}
+
+func printBudgetError(asJSON bool, err error) {
+	msg := statusline.BudgetErrorMessage(err)
+	if asJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": msg})
+		return
+	}
+	fmt.Println("Budget do LLM Gateway indisponível:", msg)
 }
 
 func cmdPreview(args []string) {
