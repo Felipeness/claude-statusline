@@ -84,7 +84,12 @@ func cmdRender() {
 			statusline.MergeProbeIntoInput(&in, probe)
 		}
 	}
-	in.AuthMode = detectAuthMode(stdinHadRateLimits, probe)
+	gateway := statusline.ProbeGateway(cfg.Gateway)
+	if gateway != nil {
+		in.Gateway = gateway.Usage
+	}
+	onGateway := gateway != nil || statusline.GatewayConfigured(cfg.Gateway)
+	in.AuthMode = detectAuthMode(stdinHadRateLimits, probe, onGateway)
 	fmt.Println(statusline.Render(&in, cfg))
 }
 
@@ -247,9 +252,13 @@ func cmdStudio(args []string) {
 }
 
 // detectAuthMode decide se a sessao do Claude Code esta autenticada via
-// env ANTHROPIC_API_KEY ou via OAuth (Claude Max/Pro).
+// LLM Gateway da empresa, env ANTHROPIC_API_KEY ou via OAuth (Claude Max/Pro).
 //
 // Hierarquia (do sinal mais autoritativo pro mais frouxo):
+//
+//  0. Sessão via LLM Gateway da empresa (base URL + token do Auth0, ou
+//     probe do gateway respondeu) → gateway. Ganha de tudo: nesse modo
+//     o Claude Code não manda rate_limits e não há ANTHROPIC_API_KEY.
 //
 //  1. Claude Code enviou rate_limits no stdin → OAuth. Esse e o unico
 //     sinal direto da sessao corrente; CC so popula rate_limits quando
@@ -267,7 +276,10 @@ func cmdStudio(args []string) {
 //     OAuth valido no disco.
 //
 //  4. Default → api_key.
-func detectAuthMode(stdinHadRateLimits bool, probe *statusline.ProbeResult) string {
+func detectAuthMode(stdinHadRateLimits bool, probe *statusline.ProbeResult, gateway bool) string {
+	if gateway {
+		return "gateway"
+	}
 	if stdinHadRateLimits {
 		return "oauth"
 	}

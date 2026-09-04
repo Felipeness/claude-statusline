@@ -67,7 +67,7 @@ var componentMetas = map[string]ComponentMeta{
 	"lines_changed": {Name: "lines_changed", Label: "Linhas +/-", Category: "git", Description: "Linhas adicionadas/removidas na session"},
 	"time":          {Name: "time", Label: "Hora", Category: "system", Description: "hh:mm atual"},
 	"mcp_status":    {Name: "mcp_status", Label: "MCP status", Category: "system", Description: "Status dos MCP servers (placeholder)"},
-	"auth_mode":     {Name: "auth_mode", Label: "Modo auth", Category: "system", Description: "Chip [API key]/[OAuth] indicando auth ativa (env ANTHROPIC_API_KEY ou util OAuth >= threshold)", HasWarnAt: true},
+	"auth_mode":     {Name: "auth_mode", Label: "Modo auth", Category: "system", Description: "Chip [Gateway]/[OAuth]/[API key] indicando a auth ativa da sessão", HasWarnAt: true},
 	"gateway_budget": {Name: "gateway_budget", Label: "Budget gateway", Category: "gateway", Description: "R$ gasto / R$ limite (%) no LLM Gateway, 🚫 quando bloqueado — requer gateway", NeedsGateway: true, HasWarnAt: true},
 	"gateway_tokens": {Name: "gateway_tokens", Label: "Tokens período", Category: "gateway", Description: "Tokens processados no período atual (todas as sessões) — requer gateway", NeedsGateway: true},
 	"gateway_reset":  {Name: "gateway_reset", Label: "Reset budget", Category: "gateway", Description: "Data em que o budget zera (reset dd/mm) — requer gateway", NeedsGateway: true},
@@ -639,9 +639,7 @@ func (mcpComp) Render(c *RenderCtx, _ ComponentOpts) Segment {
 }
 
 // =============================================================================
-// auth_mode — chip [API key] (amarelo) ou [OAuth] (verde) indicando a auth
-// ativa. API key e detectado via env ANTHROPIC_API_KEY ou util OAuth >=
-// threshold (Claude Code switcha pra API key quando bate o limite).
+// auth_mode — chip [Gateway] (LLM Gateway da empresa), [OAuth] ou [API key] (amarelo).
 // =============================================================================
 
 type authModeComp struct{}
@@ -662,11 +660,12 @@ func (authModeComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
 			mode = "oauth"
 		}
 	}
-	text := "[OAuth]"
-	sev := SevOK
-	if mode == "api_key" {
-		text = "[API key]"
-		sev = SevWarn
+	text, sev := "[OAuth]", SevOK
+	switch mode {
+	case "gateway":
+		text = "[Gateway]"
+	case "api_key":
+		text, sev = "[API key]", SevWarn
 	}
 	seg := c.Theme.SegOf("auth_mode")
 	fg := seg.FG
