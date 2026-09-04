@@ -71,6 +71,10 @@ var componentMetas = map[string]ComponentMeta{
 	"gateway_budget": {Name: "gateway_budget", Label: "Budget gateway", Category: "gateway", Description: "R$ gasto / R$ limite (%) no LLM Gateway, 🚫 quando bloqueado — requer gateway", NeedsGateway: true, HasWarnAt: true},
 	"gateway_tokens": {Name: "gateway_tokens", Label: "Tokens período", Category: "gateway", Description: "Tokens processados no período atual (todas as sessões) — requer gateway", NeedsGateway: true},
 	"gateway_reset":  {Name: "gateway_reset", Label: "Reset budget", Category: "gateway", Description: "Data em que o budget zera (reset dd/mm) — requer gateway", NeedsGateway: true},
+	"tokens_in":      {Name: "tokens_in", Label: "Tokens in", Category: "context", Description: "Tokens de entrada da sessão (In: 3)"},
+	"tokens_out":     {Name: "tokens_out", Label: "Tokens out", Category: "context", Description: "Tokens de saída da sessão (Out: 436)"},
+	"tokens_total":   {Name: "tokens_total", Label: "Tokens total", Category: "context", Description: "In + Out da sessão (Total: 439)"},
+	"tokens_cache":   {Name: "tokens_cache", Label: "Tokens cache", Category: "context", Description: "Tokens lidos do prompt cache (Cache: 38.6k), some quando 0"},
 }
 
 // Metas devolve o catálogo de components em ordem alfabética.

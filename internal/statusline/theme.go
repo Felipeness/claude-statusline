@@ -83,6 +83,10 @@ func graphiteTheme() *Theme {
 			"gateway_budget": {BG: Hex("#4c1d95"), FG: Hex("#ede9fe")},
 			"gateway_tokens": {BG: Hex("#134e4a"), FG: Hex("#ccfbf1")},
 			"gateway_reset":  {BG: Hex("#1e3a8a"), FG: Hex("#dbeafe")},
+			"tokens_in":      {BG: Hex("#064e3b"), FG: Hex("#d1fae5")},
+			"tokens_out":     {BG: Hex("#78350f"), FG: Hex("#fef3c7")},
+			"tokens_total":   {BG: Hex("#1e293b"), FG: Hex("#e2e8f0")},
+			"tokens_cache":   {BG: Hex("#312e81"), FG: Hex("#e0e7ff")},
 		},
 		Status: StatusColors{
 			OK:   Hex("#4ade80"),
