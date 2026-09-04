@@ -213,7 +213,6 @@ flowchart LR
         PRE[preview]
         STU[studio]
         BGT[budget]
-        VER[version]
     end
 
     subgraph srv ["internal/server"]

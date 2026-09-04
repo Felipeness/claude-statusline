@@ -133,7 +133,7 @@ On every Claude Code turn, `render` receives a JSON with `cwd`, `model`, `cost`,
 | `time` | system | `hh:mm` |
 | `mcp_status` | system | Placeholder — component is registered but not wired to MCP servers yet, no visible output today |
 | `auth_mode` | system | Chip `[Gateway]` / `[OAuth]` / `[API key]` showing the session's active auth |
-| `gateway_budget` | gateway | `🟢 R$ 73.53 / R$ 520.00 (14%)` — LLM Gateway spend, 🟡 ≥70%, 🔴 ≥90%, `🚫 BLOCKED` when exceeded (needs gateway) |
+| `gateway_budget` | gateway | `🟢 R$ 73,53 / R$ 520,00 (14%)` — LLM Gateway spend, 🟡 ≥70%, 🔴 ≥90%, `🚫 BLOQUEADO` when exceeded (needs gateway; gateway output is pt-BR by design — Brazilian gateway, values in reais) |
 | `gateway_tokens` | gateway | `9.7M tokens` processed in the period (needs gateway) |
 | `gateway_reset` | gateway | `reset 01/10`, the day the budget resets (needs gateway) |
 | `tokens_in` / `tokens_out` / `tokens_total` | context | `In: 3` `Out: 436` `Total: 439` for the current session |
@@ -213,7 +213,6 @@ flowchart LR
         PRE[preview]
         STU[studio]
         BGT[budget]
-        VER[version]
     end
 
     subgraph srv ["internal/server"]
