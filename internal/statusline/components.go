@@ -261,9 +261,17 @@ func isGitRepo(dir string) bool {
 	return false
 }
 
-func runGit(dir string, timeout time.Duration, args ...string) (string, error) {
+// gitCommand monta um git read-only quanto a locks: sem GIT_OPTIONAL_LOCKS=0,
+// um `git status` morto por timeout deixa .git/index.lock orfao.
+func gitCommand(dir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	return cmd
+}
+
+func runGit(dir string, timeout time.Duration, args ...string) (string, error) {
+	cmd := gitCommand(dir, args...)
 	// timeout via canal
 	done := make(chan struct{})
 	var out []byte
