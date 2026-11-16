@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -212,7 +213,7 @@ func gitBranch(dir string) string {
 	if dir == "" || !isGitRepo(dir) {
 		return ""
 	}
-	out, err := runGit(dir, 200*time.Millisecond, "branch", "--show-current")
+	out, err := runGit(dir, 2*time.Second, "branch", "--show-current")
 	if err != nil {
 		return ""
 	}
@@ -223,7 +224,7 @@ func gitDirty(dir string) bool {
 	if dir == "" || !isGitRepo(dir) {
 		return false
 	}
-	out, _ := runGit(dir, 200*time.Millisecond, "status", "--porcelain")
+	out, _ := runGit(dir, 2*time.Second, "status", "--porcelain")
 	return strings.TrimSpace(out) != ""
 }
 
@@ -231,7 +232,7 @@ func gitAheadBehind(dir string) (ahead, behind int) {
 	if dir == "" || !isGitRepo(dir) {
 		return 0, 0
 	}
-	out, err := runGit(dir, 200*time.Millisecond, "rev-list", "--left-right", "--count", "@{u}...HEAD")
+	out, err := runGit(dir, 2*time.Second, "rev-list", "--left-right", "--count", "@{u}...HEAD")
 	if err != nil {
 		return 0, 0
 	}
@@ -262,23 +263,18 @@ func isGitRepo(dir string) bool {
 }
 
 func runGit(dir string, timeout time.Duration, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	// CommandContext mata o processo com seguranca quando o prazo estoura —
+	// sem a race do Kill manual, em que cmd.Process ainda era nil se o git
+	// nao tinha nascido (startup lento no Windows) e o Kill batia em ponteiro nulo.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	// timeout via canal
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() {
-		out, err = cmd.Output()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return string(out), err
-	case <-time.After(timeout):
-		_ = cmd.Process.Kill()
-		return "", fmt.Errorf("git timeout")
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("git timeout after %s", timeout)
 	}
+	return string(out), err
 }
 
 // =============================================================================
