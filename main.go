@@ -38,7 +38,7 @@ USAGE:
   claude-statusline budget [--json]            consumo no LLM Gateway da empresa (texto ou JSON pro /budget)
   claude-statusline version                    versão do binário
 
-PRESETS: compact (default), max, powerline, gateway
+PRESETS: compact (default), max, powerline, plan, gateway
 THEMES:  graphite (default), nord, dracula, sakura, mono
 STYLES:  plain, powerline, capsule
 
