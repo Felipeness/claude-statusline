@@ -59,8 +59,11 @@ var componentMetas = map[string]ComponentMeta{
 	"burn_rate":      {Name: "burn_rate", Label: "Burn rate", Category: "cost", Description: "Tokens/min — requer daemon", NeedsHist: true, HasWarnAt: true},
 	"cost_today":     {Name: "cost_today", Label: "Cost hoje", Category: "cost", Description: "Soma do dia inteiro — requer daemon", NeedsHist: true},
 	"cost_month":     {Name: "cost_month", Label: "Cost mês", Category: "cost", Description: "Acumulado + projeção — requer daemon", NeedsHist: true},
-	"rate_5h":        {Name: "rate_5h", Label: "Rate 5h", Category: "limits", Description: "Bar + % do bloco de 5h + countdown (compact)", HasWarnAt: true},
-	"rate_7d":        {Name: "rate_7d", Label: "Rate 7d", Category: "limits", Description: "Bar + % do bloco semanal + countdown", HasWarnAt: true},
+	"context_tokens": {Name: "context_tokens", Label: "Context tokens", Category: "context", Description: "Tokens usados / tamanho da janela (227.0k/1.0M)"},
+	"effort":         {Name: "effort", Label: "Esforço", Category: "model", Description: "Nível de esforço de raciocínio da sessão (esforço medium)"},
+	"session_time":   {Name: "session_time", Label: "Tempo de sessão", Category: "system", Description: "Tempo de uso da sessão atual (sessão 1h23m)"},
+	"rate_5h":        {Name: "rate_5h", Label: "Rate 5h", Category: "limits", Description: "Bar + % do bloco de 5h + hora do reset e quanto falta", HasWarnAt: true},
+	"rate_7d":        {Name: "rate_7d", Label: "Rate 7d", Category: "limits", Description: "Bar + % do bloco semanal + dia/hora do reset e quanto falta", HasWarnAt: true},
 	"session_block":  {Name: "session_block", Label: "Session block", Category: "limits", Description: "Bar grande + reset countdown destacado pro bloco de 5h", HasWarnAt: true},
 	"ticket":         {Name: "ticket", Label: "Ticket", Category: "git", Description: "Auto-extrai TICKET-NNNN da branch"},
 	"cluster":        {Name: "cluster", Label: "Cluster AI", Category: "history", Description: "Label do cluster AI desse projeto — requer daemon", NeedsHist: true},
@@ -310,7 +313,7 @@ func (contextPctComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
 	}
 	sev := Classify(pct, opts.WarnAt, opts.CriticalAt)
 	bar := progressBar(pct, 6)
-	text := fmt.Sprintf("%s %.0f%%", bar, pct)
+	text := fmt.Sprintf("%s%s %.0f%%", opts.LabelPrefix, bar, pct)
 	seg := c.Theme.SegOf("context_pct")
 	fg := seg.FG
 	if sev != SevOK {
@@ -419,60 +422,59 @@ func (costMonthComp) Render(c *RenderCtx, _ ComponentOpts) Segment {
 // Rate limits 5h / 7d — % + countdown pro reset.
 // =============================================================================
 
-type rate5hComp struct{}
-
-func (rate5hComp) Name() string { return "rate_5h" }
-func (rate5hComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
-	if c.In.RateLimits == nil || c.In.RateLimits.FiveHour == nil {
-		return Segment{}
-	}
-	w := c.In.RateLimits.FiveHour
-	if w.UsedPercentage == 0 && w.ResetsAt == 0 {
-		return Segment{}
-	}
-	sev := Classify(w.UsedPercentage, opts.WarnAt, opts.CriticalAt)
-	bar := progressBar(w.UsedPercentage, 6)
-	text := fmt.Sprintf("%s5h %s %.0f%%", opts.LabelPrefix, bar, w.UsedPercentage)
-	if w.ResetsAt > 0 {
-		left := time.Until(time.Unix(w.ResetsAt, 0))
-		if left > 0 {
-			text += fmt.Sprintf(" %s", humanDur(left))
-		}
-	}
-	seg := c.Theme.SegOf("rate_5h")
-	fg := seg.FG
-	if sev != SevOK {
-		fg = c.Theme.SeverityFG(sev)
-	}
-	return Segment{Name: "rate_5h", Text: text, FG: fg, BG: seg.BG}
+// rateWindowComp é o molde de rate_5h e rate_7d: label + bar + % + quando
+// a janela zera. window escolhe qual janela do stdin o chip mostra.
+type rateWindowComp struct {
+	name   string
+	label  string
+	window func(*RateLimits) *RateLimitWindow
 }
 
-type rate7dComp struct{}
-
-func (rate7dComp) Name() string { return "rate_7d" }
-func (rate7dComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
-	if c.In.RateLimits == nil || c.In.RateLimits.SevenDay == nil {
+func (r rateWindowComp) Name() string { return r.name }
+func (r rateWindowComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
+	if c.In.RateLimits == nil {
 		return Segment{}
 	}
-	w := c.In.RateLimits.SevenDay
-	if w.UsedPercentage == 0 {
+	w := r.window(c.In.RateLimits)
+	if w == nil || (w.UsedPercentage == 0 && w.ResetsAt == 0) {
 		return Segment{}
 	}
-	sev := Classify(w.UsedPercentage, opts.WarnAt, opts.CriticalAt)
-	bar := progressBar(w.UsedPercentage, 6)
-	text := fmt.Sprintf("%s7d %s %.0f%%", opts.LabelPrefix, bar, w.UsedPercentage)
-	if w.ResetsAt > 0 {
-		left := time.Until(time.Unix(w.ResetsAt, 0))
-		if left > 0 {
-			text += fmt.Sprintf(" %s", humanDur(left))
-		}
-	}
-	seg := c.Theme.SegOf("rate_7d")
+	text := fmt.Sprintf("%s%s %s %.0f%%%s", opts.LabelPrefix, r.label,
+		progressBar(w.UsedPercentage, 6), w.UsedPercentage, resetSuffix(w.ResetsAt, c.now()))
+	seg := c.Theme.SegOf(r.name)
 	fg := seg.FG
-	if sev != SevOK {
+	if sev := Classify(w.UsedPercentage, opts.WarnAt, opts.CriticalAt); sev != SevOK {
 		fg = c.Theme.SeverityFG(sev)
 	}
-	return Segment{Name: "rate_7d", Text: text, FG: fg, BG: seg.BG}
+	return Segment{Name: r.name, Text: text, FG: fg, BG: seg.BG}
+}
+
+func (c *RenderCtx) now() time.Time {
+	if c.Now.IsZero() {
+		return time.Now()
+	}
+	return c.Now
+}
+
+var weekdaysPT = [...]string{"dom", "seg", "ter", "qua", "qui", "sex", "sáb"}
+
+// resetSuffix descreve quando a janela zera: " reseta qua 23:00 (em 3h21m)".
+// O dia da semana some quando o reset cai hoje; vazio se o reset não veio
+// ou já passou.
+func resetSuffix(resetsAt int64, now time.Time) string {
+	if resetsAt == 0 {
+		return ""
+	}
+	at := time.Unix(resetsAt, 0).In(now.Location())
+	left := at.Sub(now)
+	if left <= 0 {
+		return ""
+	}
+	clock := at.Format("15:04")
+	if at.Format(time.DateOnly) != now.Format(time.DateOnly) {
+		clock = weekdaysPT[at.Weekday()] + " " + clock
+	}
+	return fmt.Sprintf(" reseta %s (em %s)", clock, humanDur(left))
 }
 
 // session_block é um component "rico" pra mostrar o bloco atual de 5h
@@ -521,11 +523,53 @@ func humanDur(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	h := int(d.Hours())
+	if h >= 24 {
+		return fmt.Sprintf("%dd%dh", h/24, h%24)
+	}
 	m := int(d.Minutes()) % 60
 	if m == 0 {
 		return fmt.Sprintf("%dh", h)
 	}
 	return fmt.Sprintf("%dh%dm", h, m)
+}
+
+// =============================================================================
+// Effort / session time / context tokens — direto do stdin.
+// =============================================================================
+
+type effortComp struct{}
+
+func (effortComp) Name() string { return "effort" }
+func (effortComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
+	if c.In.Effort == nil || c.In.Effort.Level == "" {
+		return Segment{}
+	}
+	seg := c.Theme.SegOf("effort")
+	return Segment{Name: "effort", Text: opts.LabelPrefix + "esforço " + c.In.Effort.Level, FG: seg.FG, BG: seg.BG}
+}
+
+type sessionTimeComp struct{}
+
+func (sessionTimeComp) Name() string { return "session_time" }
+func (sessionTimeComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
+	if c.In.Cost.TotalDurationMS <= 0 {
+		return Segment{}
+	}
+	elapsed := time.Duration(c.In.Cost.TotalDurationMS) * time.Millisecond
+	seg := c.Theme.SegOf("session_time")
+	return Segment{Name: "session_time", Text: opts.LabelPrefix + "sessão " + humanDur(elapsed), FG: seg.FG, BG: seg.BG}
+}
+
+type contextTokensComp struct{}
+
+func (contextTokensComp) Name() string { return "context_tokens" }
+func (contextTokensComp) Render(c *RenderCtx, opts ComponentOpts) Segment {
+	size := c.In.Context.ContextWindowSize
+	if size <= 0 {
+		return Segment{}
+	}
+	text := opts.LabelPrefix + FormatTokens(int64(c.In.Context.TotalInputTokens)) + "/" + FormatTokens(int64(size))
+	return Segment{Name: "context_tokens", Text: text, FG: c.Theme.Muted}
 }
 
 // =============================================================================
@@ -685,8 +729,11 @@ func init() {
 	Register(burnRateComp{})
 	Register(costTodayComp{})
 	Register(costMonthComp{})
-	Register(rate5hComp{})
-	Register(rate7dComp{})
+	Register(rateWindowComp{name: "rate_5h", label: "5h", window: func(r *RateLimits) *RateLimitWindow { return r.FiveHour }})
+	Register(rateWindowComp{name: "rate_7d", label: "semana", window: func(r *RateLimits) *RateLimitWindow { return r.SevenDay }})
+	Register(effortComp{})
+	Register(sessionTimeComp{})
+	Register(contextTokensComp{})
 	Register(sessionBlockComp{})
 	Register(ticketComp{})
 	Register(clusterComp{})

@@ -13,7 +13,7 @@
 [![Runtime Deps](https://img.shields.io/badge/Runtime%20Deps-0-brightgreen?style=flat-square)](#stack-)
 [![Studio](https://img.shields.io/badge/Studio-embedded-58a6ff?style=flat-square)](#studio-)
 
-**25 components** &bull; **5 themes** &bull; **3 styles** &bull; **4 presets** &bull; **0 deps em runtime**
+**28 components** &bull; **5 themes** &bull; **3 styles** &bull; **5 presets** &bull; **0 deps em runtime**
 
 *Inspirado no [Powerline Studio](https://powerline.owloops.com/) — portado pra Claude Code.*
 
@@ -29,7 +29,7 @@
 
 **Solução.** Um binário Go único que faz duas coisas: renderiza o statusline pro Claude Code via stdin (rápido, ~30ms) e abre um Studio web (`claude-statusline studio`) onde você arrasta components, escolhe tema, ajusta thresholds e vê o preview live com dados mockados ajustáveis em sliders.
 
-**Prova.** 25 components · 5 themes · 3 styles = 375 combinações configuráveis sem editar TOML, mais 4 presets prontos (compact, max, powerline, gateway). Engine único em Go (mesmo código no terminal e na preview web — zero risco de divergência). Binário 11MB, zero deps em runtime.
+**Prova.** 28 components · 5 themes · 3 styles = 420 combinações configuráveis sem editar TOML, mais 5 presets prontos (compact, max, powerline, plan, gateway). Engine único em Go (mesmo código no terminal e na preview web — zero risco de divergência). Binário 11MB, zero deps em runtime.
 
 ---
 
@@ -111,7 +111,7 @@ A cada turno do Claude Code, o `render` recebe um JSON com `cwd`, `model`, `cost
 ## ~ Components disponíveis
 
 <details>
-<summary><strong>25 components organizados em 9 categorias</strong></summary>
+<summary><strong>28 components organizados em 9 categorias</strong></summary>
 
 | Component | Categoria | Mostra |
 |---|---|---|
@@ -120,17 +120,20 @@ A cada turno do Claude Code, o `render` recebe um JSON com `cwd`, `model`, `cost
 | `ticket` | git | Auto-extrai `TICKET-NNNN` do nome da branch (Jira/Linear) |
 | `lines_changed` | git | `+45/-12` linhas |
 | `model` | model | Display name (ex: "Opus 4.7") |
+| `effort` | model | `esforço medium` — nível de esforço de raciocínio da sessão |
 | `vim_mode` | system | NORMAL / INSERT |
 | `context_pct` | context | Bar `▓▓░░░░ 42%` com cor por severity |
+| `context_tokens` | context | `227.0k/1.0M` — tokens usados / tamanho da janela |
 | `cost_session` | cost | `$X.XX` com badge opcional `(N×p90)` |
 | `burn_rate` | cost | Tokens/min com seta de tendência `⬆` |
 | `cost_today` | cost | Custo acumulado do dia (precisa daemon) |
 | `cost_month` | cost | Total mensal + projeção (precisa daemon) |
-| `rate_5h` | limits | Bar + % do bloco de 5h + countdown |
-| `rate_7d` | limits | Bar + % do bloco semanal + countdown |
+| `rate_5h` | limits | `5h ▓▓▓░░░ 55% reseta 23:00 (em 3h21m)` — bar + % do bloco de 5h + hora do reset |
+| `rate_7d` | limits | `semana ▓▓░░░░ 48% reseta dom 09:39 (em 3d14h)` — bar + % do bloco semanal + dia/hora do reset |
 | **`session_block`** | limits | **Bar grande + reset destacado pro bloco de 5h:** `session ▓▓▓▓▓░░░ 73% → 2h12m` |
 | `cluster` | history | Label de cluster AI da session (precisa daemon) |
 | `time` | system | `hh:mm` |
+| `session_time` | system | `sessão 1h23m` — tempo de uso da sessão atual |
 | `mcp_status` | system | Placeholder — component registrado mas ainda sem integração com MCP servers, sem saída visível hoje |
 | `auth_mode` | system | Chip `[Gateway]` / `[OAuth]` / `[API key]` indicando a autenticação ativa da sessão |
 | `gateway_budget` | gateway | `🟢 R$ 73,53 / R$ 520,00 (14%)` — consumo no LLM Gateway, 🟡 ≥70%, 🔴 ≥90%, `🚫 BLOQUEADO` quando excedido (requer gateway) |
@@ -186,7 +189,7 @@ claude-statusline studio    # abre http://localhost:5556 no navegador
 | **Lines** | Drag-and-drop horizontal de chips, multi-linha com separator customizável |
 | **Threshold editor** | Click no `⚙` de qualquer chip com `has_warn_at` pra ajustar warn/critical |
 | **Mock data** | 13 sliders pra simular cenários (context %, cost, burn rate, rate 5h/7d, etc) |
-| **Reset preset** | compact / max / powerline / gateway |
+| **Reset preset** | compact / max / powerline / plan / gateway |
 | **Catálogo** | Lista todos 25 components com badge "requer daemon" pros que dependem de histórico e "requer gateway" pros que dependem do LLM Gateway |
 
 Ao salvar, persiste em `~/.claude-statusline/config.toml`. Reinicia o Claude Code pra aplicar (statusLine só carrega no boot).
@@ -274,7 +277,7 @@ claude-statusline/
 │   │   ├── render.go             # plain/powerline/capsule renderers
 │   │   ├── html.go               # ANSI → HTML pra Studio
 │   │   ├── history.go            # fetch opcional de daemon
-│   │   ├── presets.go            # compact/max/powerline/gateway
+│   │   ├── presets.go            # compact/max/powerline/plan/gateway
 │   │   ├── install.go            # merge atômico em settings.json
 │   │   └── *_test.go             # testes table-driven por arquivo
 │   └── server/
@@ -323,7 +326,7 @@ go build -o ~/.local/bin/claude-statusline .
 # 2. Plug no Claude Code (faz backup do settings.json)
 claude-statusline install --preset compact
 # se voce ja tem outro statusline instalado: --force
-claude-statusline install --preset gateway   # ou compact/max/powerline
+claude-statusline install --preset gateway   # ou compact/max/powerline/plan
 
 # 3. Reinicia o Claude Code (statusLine so carrega no boot)
 ```

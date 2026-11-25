@@ -20,6 +20,7 @@ type Input struct {
 	Cost      CostInfo      `json:"cost"`
 
 	RateLimits *RateLimits `json:"rate_limits,omitempty"`
+	Effort     *EffortInfo `json:"effort,omitempty"`
 	// AuthMode é populado pelo render command (nao vem do stdin) com base
 	// em env ANTHROPIC_API_KEY e na presenca de rate_limits no stdin
 	// original. Valores: "api_key" | "oauth" | "gateway" (sessão via LLM
@@ -77,6 +78,10 @@ type RateLimitWindow struct {
 type RateLimits struct {
 	FiveHour *RateLimitWindow `json:"five_hour,omitempty"`
 	SevenDay *RateLimitWindow `json:"seven_day,omitempty"`
+}
+
+type EffortInfo struct {
+	Level string `json:"level,omitempty"` // low | medium | high | xhigh | max
 }
 
 type VimMode struct {

@@ -54,9 +54,12 @@ function mockToInput(m: StatuslineMock) {
     cwd: m.cwd,
     session_id: 'preview-mock',
     model: { display_name: m.model, id: 'claude-opus-4-7' },
+    effort: { level: 'medium' },
     workspace: { current_dir: m.cwd, project_dir: m.cwd },
     context_window: {
       used_percentage: m.context_pct,
+      total_input_tokens: Math.round(m.context_pct * 2_000),
+      context_window_size: 200_000,
       current_usage: {
         input_tokens: m.tokens_in,
         output_tokens: m.tokens_out,
@@ -65,12 +68,13 @@ function mockToInput(m: StatuslineMock) {
     },
     cost: {
       total_cost_usd: m.cost_usd,
+      total_duration_ms: 83 * 60_000,
       total_lines_added: m.lines_added,
       total_lines_removed: m.lines_removed,
     },
     rate_limits: {
-      five_hour: { used_percentage: m.rate_5h_pct },
-      seven_day: { used_percentage: m.rate_7d_pct },
+      five_hour: { used_percentage: m.rate_5h_pct, resets_at: Math.floor(Date.now() / 1000) + 2 * 3600 },
+      seven_day: { used_percentage: m.rate_7d_pct, resets_at: Math.floor(Date.now() / 1000) + 3 * 86_400 },
     },
     gateway: {
       spent_brl_micro: Math.round(m.gateway_spent_brl * 1_000_000),
@@ -287,7 +291,7 @@ export function App() {
 
         <Section
           title="Resetar pra preset"
-          help="Presets prontos pra começar. compact = 1 linha enxuta. max = 2 linhas com tudo. powerline = estilo pílulas."
+          help="Presets prontos pra começar. compact = 1 linha enxuta. max = 2 linhas com tudo. powerline = estilo pílulas. plan = esforço + limites da assinatura com dia/hora do reset."
         >
           <div className="flex gap-2 flex-wrap">
             {presetNames.map((name) => (
